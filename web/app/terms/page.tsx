@@ -6,8 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Shield, FileText, AlertTriangle, CheckCircle, XCircle, Zap, Users, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 export default function TermsPage() {
+  const { t } = useLanguage();
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white">
       {/* Animated Background Elements */}
@@ -49,16 +51,16 @@ export default function TermsPage() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-4xl md:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-300"
           >
-            Условия пользования
+            {t("terms.title")}
           </motion.h1>
-          
+
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.3 }}
             className="text-xl text-gray-400 max-w-2xl mx-auto"
           >
-            Правила использования платформы Neura
+            {t("terms.subtitle")}
           </motion.p>
         </motion.div>
 
@@ -78,9 +80,9 @@ export default function TermsPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-500/30">
                 <AlertTriangle className="w-6 h-6 text-red-400" />
               </div>
-              <h2 className="text-2xl font-bold">1. Общие положения</h2>
+              <h2 className="text-2xl font-bold">{t("terms.section1Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -88,10 +90,9 @@ export default function TermsPage() {
               className="space-y-4 text-gray-300"
             >
               <p>
-                Используя платформу Neura, вы подтверждаете, что прочитали, поняли и соглашаетесь соблюдать 
-                настоящие Условия пользования. Мы оставляем за собой право изменять эти условия в любое время.
+                {t("terms.generalDesc")}
               </p>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                 <motion.div
                   whileHover={{ y: -5 }}
@@ -99,27 +100,27 @@ export default function TermsPage() {
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <CheckCircle className="w-5 h-5 text-green-400" />
-                    <span className="font-semibold">Разрешено</span>
+                    <span className="font-semibold">{t("terms.allowed")}</span>
                   </div>
                   <ul className="space-y-2 text-sm text-gray-400">
-                    <li>• Использование сервиса для личного трейдинга</li>
-                    <li>• Получение и применение торговых сигналов</li>
-                    <li>• Техническая аналитика и обучение</li>
+                    {t("terms.allowedItems").split(', ').map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
                   </ul>
                 </motion.div>
-                
+
                 <motion.div
                   whileHover={{ y: -5 }}
                   className="p-4 rounded-lg bg-gray-900/50 border border-gray-800"
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <XCircle className="w-5 h-5 text-red-400" />
-                    <span className="font-semibold">Запрещено</span>
+                    <span className="font-semibold">{t("terms.prohibited")}</span>
                   </div>
                   <ul className="space-y-2 text-sm text-gray-400">
-                    <li>• Перепродажа сигналов третьим лицам</li>
-                    <li>• Использование ботов для обхода ограничений</li>
-                    <li>• Мошеннические действия на платформе</li>
+                    {t("terms.prohibitedItems").split(', ').map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
                   </ul>
                 </motion.div>
               </div>
@@ -140,9 +141,9 @@ export default function TermsPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30">
                 <Zap className="w-6 h-6 text-purple-400" />
               </div>
-              <h2 className="text-2xl font-bold">2. Использование сервиса</h2>
+              <h2 className="text-2xl font-bold">{t("terms.section2Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -156,29 +157,27 @@ export default function TermsPage() {
                 >
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    Требования к пользователям
+                    {t("terms.requirements")}
                   </h3>
                   <ul className="space-y-2 text-sm text-gray-400">
-                    <li>• Возраст от 18 лет</li>
-                    <li>• Верифицированный аккаунт</li>
-                    <li>• Согласие с условиями</li>
-                    <li>• Наличие торгового счёта</li>
+                    {t("terms.requirementsItems").split(', ').map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
                   </ul>
                 </motion.div>
-                
+
                 <motion.div
                   whileHover={{ scale: 1.02 }}
                   className="p-4 rounded-lg bg-gray-900/50 border border-gray-800"
                 >
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                    Ограничения
+                    {t("terms.restrictions")}
                   </h3>
                   <ul className="space-y-2 text-sm text-gray-400">
-                    <li>• 1 аккаунт на пользователя</li>
-                    <li>• Запрет на автоматический парсинг</li>
-                    <li>• Ограничение по частоте запросов</li>
-                    <li>• Соблюдение законодательства</li>
+                    {t("terms.restrictionsItems").split(', ').map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
                   </ul>
                 </motion.div>
               </div>
@@ -199,9 +198,9 @@ export default function TermsPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-green-500/20 to-green-600/20 border border-green-500/30">
                 <Users className="w-6 h-6 text-green-400" />
               </div>
-              <h2 className="text-2xl font-bold">3. Ответственность</h2>
+              <h2 className="text-2xl font-bold">{t("terms.section3Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -209,12 +208,11 @@ export default function TermsPage() {
               className="space-y-4 text-gray-300"
             >
               <p>
-                Neura предоставляет аналитические инструменты и сигналы, но не гарантирует прибыль. 
-                Вы несёте полную ответственность за свои торговые решения.
+                {t("terms.responsibilityDesc")}
               </p>
-              
+
               <motion.div
-                animate={{ 
+                animate={{
                   boxShadow: [
                     "0 0 0px rgba(239, 68, 68, 0)",
                     "0 0 20px rgba(239, 68, 68, 0.3)",
@@ -224,10 +222,9 @@ export default function TermsPage() {
                 transition={{ repeat: Infinity, duration: 3 }}
                 className="p-4 rounded-lg bg-red-900/20 border border-red-800/50 mt-6"
               >
-                <h4 className="font-semibold text-red-300 mb-2">Важное предупреждение</h4>
+                <h4 className="font-semibold text-red-300 mb-2">{t("terms.warning")}</h4>
                 <p className="text-sm text-red-200/80">
-                  Торговля на финансовых рынках связана с риском потери средств. Используйте только 
-                  те средства, которые готовы потерять. Прошлые результаты не гарантируют будущих.
+                  {t("terms.warningDesc")}
                 </p>
               </motion.div>
             </motion.div>
@@ -247,9 +244,9 @@ export default function TermsPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 border border-yellow-500/30">
                 <Lock className="w-6 h-6 text-yellow-400" />
               </div>
-              <h2 className="text-2xl font-bold">4. Конфиденциальность</h2>
+              <h2 className="text-2xl font-bold">{t("terms.section4Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -257,28 +254,27 @@ export default function TermsPage() {
               className="space-y-4 text-gray-300"
             >
               <p>
-                Мы защищаем ваши данные в соответствии с нашей Политикой конфиденциальности. 
-                Подробнее о том, как мы обрабатываем информацию, вы можете узнать на соответствующей странице.
+                {t("terms.privacyDesc")}
               </p>
-              
+
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 className="flex items-center justify-between p-4 rounded-lg bg-gray-900/50 border border-gray-800 mt-6"
               >
                 <div>
-                  <h4 className="font-semibold">Политика конфиденциальности</h4>
-                  <p className="text-sm text-gray-400 mt-1">Узнайте больше о защите ваших данных</p>
+                  <h4 className="font-semibold">{t("terms.privacyPolicy")}</h4>
+                  <p className="text-sm text-gray-400 mt-1">{t("terms.learnMore")}</p>
                 </div>
                 <motion.div
                   whileHover={{ x: 5 }}
                   transition={{ duration: 0.2 }}
                 >
                   <Link href="/privacy">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       className="border-gray-700 hover:border-blue-500 hover:bg-blue-900/20"
                     >
-                      Подробнее
+                      {t("terms.learnMore")}
                     </Button>
                   </Link>
                 </motion.div>
@@ -299,19 +295,19 @@ export default function TermsPage() {
             transition={{ repeat: Infinity, duration: 2 }}
             className="text-gray-400 mb-6"
           >
-            Продолжая использование платформы, вы соглашаетесь с условиями
+            {t("terms.continueUsing")}
           </motion.p>
-          
+
           <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             <Link href="/">
-              <Button 
+              <Button
                 size="lg"
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 px-12 py-6 rounded-xl"
               >
-                Вернуться на главную
+                {t("terms.backToHome")}
               </Button>
             </Link>
           </motion.div>

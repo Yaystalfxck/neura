@@ -5,33 +5,40 @@ html, body {
   padding: 0;
   width: 100%;
   min-height: 100vh;
-  background: #000; /* или любой нужный вам фон */
+  background: #000;
 }
 
 * {
-  box-sizing: border-box; /* чтобы padding не ломал ширину */
+  box-sizing: border-box;
+}
+
+/* Улучшенное отображение шрифтов для кириллицы */
+body {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @layer base {
   :root {
-    --background: 0 0% 0%; /* ИЗМЕНЕНО: было 0 0% 100% (белый) → стало 0 0% 0% (чёрный) */
-    --foreground: 0 0% 100%; /* ИЗМЕНЕНО: текст на белый для контраста */
-    --card: 0 0% 0%; /* ИЗМЕНЕНО: карточки тоже на чёрный */
-    --card-foreground: 0 0% 100%; /* ИЗМЕНЕНО: текст карточек на белый */
-    --popover: 0 0% 0%; /* ИЗМЕНЕНО: попапы на чёрный */
-    --popover-foreground: 0 0% 100%; /* ИЗМЕНЕНО: текст попапов на белый */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 0%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 0%;
+    --popover-foreground: 0 0% 100%;
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 10%; /* ИЗМЕНЕНО: сделаем темнее для чёрного фона */
-    --secondary-foreground: 0 0% 100%; /* ИЗМЕНЕНО: на белый */
-    --muted: 210 40% 15%; /* ИЗМЕНЕНО: сделаем темнее */
-    --muted-foreground: 0 0% 80%; /* ИЗМЕНЕНО: светло-серый текст */
-    --accent: 210 40% 15%; /* ИЗМЕНЕНО: сделаем темнее */
-    --accent-foreground: 0 0% 100%; /* ИЗМЕНЕНО: на белый */
+    --secondary: 210 40% 10%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 210 40% 15%;
+    --muted-foreground: 0 0% 80%;
+    --accent: 210 40% 15%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 30%; /* ИЗМЕНЕНО: темные границы для чёрного фона */
-    --input: 214.3 31.8% 20%; /* ИЗМЕНЕНО: темные инпуты */
+    --border: 214.3 31.8% 30%;
+    --input: 214.3 31.8% 20%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
     --chart-1: 12 76% 61%;

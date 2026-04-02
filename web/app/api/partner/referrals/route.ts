@@ -1,87 +1,39 @@
-import { NextResponse } from 'next/server'
-import { getReferrals, getDb } from '@/lib/database'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET(request: Request) {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// GET - Получение списка рефералов
+export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('neura-session')?.value
-    const userEmail = cookieStore.get('user-email')?.value
+    const authToken = request.cookies.get('auth-token')?.value;
 
-    if (!sessionToken || !userEmail) {
+    if (!authToken) {
       return NextResponse.json(
         { success: false, error: 'Не авторизован' },
         { status: 401 }
-      )
+      );
     }
 
-    const { searchParams } = new URL(request.url)
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    const response = await fetch(`${API_URL}/api/partner/referrals`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
 
-    const db = await getDb()
-    
-    const user = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT id FROM users WHERE email = ?',
-        [userEmail],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
-    })
+    const data = await response.json();
 
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Пользователь не найден' },
-        { status: 401 }
-      )
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status });
     }
 
-    const userId = (user as any).id
+    return NextResponse.json(data);
 
-    const session = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT * FROM sessions WHERE userId = ? AND token = ? AND expiresAt > datetime("now")',
-        [userId, sessionToken],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
-    })
-
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: 'Сессия истекла' },
-        { status: 401 }
-      )
-    }
-
-    const referrals = await getReferrals(userId, limit, offset)
-
-    const formattedReferrals = referrals.map(ref => ({
-      id: ref.id,
-      name: ref.name || 'Пользователь',
-      email: ref.email,
-      registeredAt: new Date(ref.registeredAt).toLocaleDateString('ru-RU'),
-      status: ref.status || 'active',
-      totalDeposit: ref.total_deposit || 0,
-      commission: ref.commission_earned || 0,
-      trades: ref.trades_count || 0,
-      profit: ref.total_profit || 0
-    }))
-
-    return NextResponse.json({
-      success: true,
-      referrals: formattedReferrals
-    })
   } catch (error) {
-    console.error('Error in /api/partner/referrals:', error)
+    console.error('❌ Get referrals error:', error);
     return NextResponse.json(
-      { success: false, error: 'Внутренняя ошибка сервера' },
+      { success: false, error: 'Ошибка при получении рефералов' },
       { status: 500 }
-    )
+    );
   }
 }

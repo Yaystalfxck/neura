@@ -1,88 +1,43 @@
-import { NextResponse } from 'next/server'
-import { requestPayout, getDb } from '@/lib/database'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// POST - Запрос на выплату
+export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('neura-session')?.value
-    const userEmail = cookieStore.get('user-email')?.value
+    const authToken = request.cookies.get('auth-token')?.value;
 
-    if (!sessionToken || !userEmail) {
+    if (!authToken) {
       return NextResponse.json(
         { success: false, error: 'Не авторизован' },
         { status: 401 }
-      )
+      );
     }
 
-    const { amount, method, details } = await request.json()
+    const body = await request.json();
 
-    if (!amount || amount <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'Некорректная сумма' },
-        { status: 400 }
-      )
+    const response = await fetch(`${API_URL}/api/partner/request-payout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status });
     }
 
-    const db = await getDb()
-    
-    const user = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT id FROM users WHERE email = ?',
-        [userEmail],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
-    })
+    return NextResponse.json(data);
 
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Пользователь не найден' },
-        { status: 401 }
-      )
-    }
-
-    const userId = (user as any).id
-
-    const session = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT * FROM sessions WHERE userId = ? AND token = ? AND expiresAt > datetime("now")',
-        [userId, sessionToken],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
-    })
-
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: 'Сессия истекла' },
-        { status: 401 }
-      )
-    }
-
-    await requestPayout(userId, amount, method, details)
-
-    return NextResponse.json({
-      success: true,
-      message: 'Запрос на выплату отправлен'
-    })
-  } catch (error: any) {
-    console.error('Error in /api/partner/request-payout:', error)
-    
-    if (error.message === 'Insufficient commission balance') {
-      return NextResponse.json(
-        { success: false, error: 'Недостаточно средств для вывода' },
-        { status: 400 }
-      )
-    }
-    
+  } catch (error) {
+    console.error('❌ Request payout error:', error);
     return NextResponse.json(
-      { success: false, error: 'Внутренняя ошибка сервера' },
+      { success: false, error: 'Ошибка при запросе выплаты' },
       { status: 500 }
-    )
+    );
   }
 }

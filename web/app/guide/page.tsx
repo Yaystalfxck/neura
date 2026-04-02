@@ -2,16 +2,20 @@
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Play, Users, Clock, Target, ChevronRight, Download, Share2, Pause, Home } from "lucide-react";
+import { ArrowRight, Play, Users, Clock, Target, ChevronRight, Download, Share2, Pause, Home, User, Zap } from "lucide-react";
 import { motion } from "framer-motion";
 import { useInView } from "framer-motion";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { LoginDialog } from "@/components/modals/LoginDialog";
 import { RegisterDialog } from "@/components/modals/RegisterDialog";
+import { useLanguage } from "@/app/contexts/LanguageContext";
+import { useAuth } from "@/app/contexts/AuthContext";
 
 export default function GuidePage() {
+  const { t } = useLanguage();
   const router = useRouter();
+  const { user, isAuthenticated } = useAuth();
   const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
   const [isRegisterDialogOpen, setIsRegisterDialogOpen] = useState(false);
   
@@ -80,10 +84,10 @@ export default function GuidePage() {
       console.error("Ошибка воспроизведения видео:", error);
       setIsPlaying(false);
       playPromiseRef.current = null;
-      
+
       // Показать сообщение пользователю
-      toast.error("Не удалось воспроизвести видео", {
-        description: "Попробуйте обновить страницу или использовать другой браузер",
+      toast.error(t("guide.videoError"), {
+        description: t("guide.videoErrorDesc"),
       });
     }
   }, []);
@@ -128,7 +132,7 @@ export default function GuidePage() {
     link.click();
     document.body.removeChild(link);
     
-    toast.success("Видео-руководство добавлено в загрузки", {
+    toast.success(t("guide.guideAdded"), {
       description: "Файл: neura-guide.mp4",
     });
   };
@@ -137,7 +141,7 @@ export default function GuidePage() {
   const handleShare = async () => {
     const shareData = {
       title: "Neura - Полное руководство",
-      text: "Посмотрите полное руководство по работе с платформой Neura",
+      text: t("guide.shareGuide"),
       url: window.location.href,
     };
 
@@ -150,8 +154,8 @@ export default function GuidePage() {
     } else {
       // Копировать ссылку в буфер обмена
       navigator.clipboard.writeText(window.location.href);
-      toast.success("Ссылка скопирована в буфер обмена", {
-        description: "Поделитесь ею с друзьями",
+      toast.success(t("guide.linkCopied"), {
+        description: t("guide.shareWithFriends"),
       });
     }
   };
@@ -281,45 +285,74 @@ export default function GuidePage() {
               Guide
             </motion.h1>
             
-            <motion.p 
+            <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8, delay: 0.3 }}
               className="text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto"
             >
-              Полное руководство по работе с платформой Neura. 
-              Изучите все возможности за считанные минуты.
+              {t("guideExtended.platformSubtitle")}
             </motion.p>
           </motion.div>
 
           {/* Кнопки */}
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.5 }}
-            className="flex flex-col sm:flex-row justify-center items-center gap-6 mb-20"
-          >
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button 
-                size="lg" 
-                onClick={handleOpenRegister}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 px-10 py-6 text-lg rounded-xl font-semibold shadow-lg shadow-blue-500/30"
-              >
-                Регистрация <ArrowRight className="ml-2" />
-              </Button>
+          {!isAuthenticated && !user ? (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.5 }}
+              className="flex flex-col sm:flex-row justify-center items-center gap-6 mb-20"
+            >
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  size="lg"
+                  onClick={handleOpenRegister}
+                  className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 px-10 py-6 text-lg rounded-xl font-semibold shadow-lg shadow-blue-500/30"
+                >
+                  {t("header.register")} <ArrowRight className="ml-2" />
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={handleGoHome}
+                  className="border-2 border-white/50 hover:border-white hover:bg-white/10 px-10 py-6 text-lg rounded-xl font-semibold backdrop-blur-sm"
+                >
+                  <Home className="mr-2" />
+                  {t("header.home")}
+                </Button>
+              </motion.div>
             </motion.div>
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button 
-                size="lg" 
-                variant="outline"
-                onClick={handleGoHome}
-                className="border-2 border-white/50 hover:border-white hover:bg-white/10 px-10 py-6 text-lg rounded-xl font-semibold backdrop-blur-sm"
-              >
-                <Home className="mr-2" />
-                На главную
-              </Button>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.5 }}
+              className="flex flex-col sm:flex-row justify-center items-center gap-6 mb-20"
+            >
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  size="lg"
+                  onClick={() => router.push("/Signals")}
+                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 px-10 py-6 text-lg rounded-xl font-semibold shadow-lg shadow-green-500/30"
+                >
+                  {t("header.getSignal")} <Zap className="ml-2" />
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => router.push("/profile")}
+                  className="border-2 border-white/50 hover:border-white hover:bg-white/10 px-10 py-6 text-lg rounded-xl font-semibold backdrop-blur-sm"
+                >
+                  <User className="mr-2" />
+                  {t("header.profile")}
+                </Button>
+              </motion.div>
             </motion.div>
-          </motion.div>
+          )}
         </div>
       </section>
 
@@ -379,7 +412,7 @@ export default function GuidePage() {
                         )}
                       </motion.button>
                       <p className="text-xl text-gray-300 font-medium">
-                        {isPlaying ? "Пауза" : "Нажмите для воспроизведения"}
+                        {isPlaying ? t("guide.pause") : t("guide.play")}
                       </p>
                       <p className="text-gray-500 text-sm mt-2">Длительность: 15:30</p>
                     </motion.div>
@@ -406,7 +439,7 @@ export default function GuidePage() {
               </div>
 
               {/* Видео информация */}
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
@@ -415,17 +448,17 @@ export default function GuidePage() {
               >
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
-                    <h3 className="text-2xl font-bold mb-2">Полное руководство по Neura</h3>
+                    <h3 className="text-2xl font-bold mb-2">{t("guideExtended.videoGuide")}</h3>
                     <div className="flex items-center gap-4 text-gray-400">
                       <span className="flex items-center gap-2">
                         <Clock className="w-4 h-4" />
                         {formatTime(currentTime)} / {formatTime(duration)}
                       </span>
                       <span>•</span>
-                      <span>Опубликовано: 13 января 2026</span>
+                      <span>{t("guideExtended.published")}: 13 {t("home.home") === 'Home' ? 'January' : 'января'} 2026</span>
                     </div>
                   </div>
-                  
+
                   <div className="flex gap-3">
                     <motion.button
                       whileHover={{ scale: 1.1 }}
@@ -434,7 +467,7 @@ export default function GuidePage() {
                       className="p-3 bg-gray-800/50 rounded-lg hover:bg-blue-600/30 transition-colors flex items-center gap-2"
                     >
                       <Download className="w-5 h-5" />
-                      <span className="hidden sm:inline">Скачать</span>
+                      <span className="hidden sm:inline">{t("guide.downloadGuide")}</span>
                     </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.1 }}
@@ -443,7 +476,7 @@ export default function GuidePage() {
                       className="p-3 bg-gray-800/50 rounded-lg hover:bg-purple-600/30 transition-colors flex items-center gap-2"
                     >
                       <Share2 className="w-5 h-5" />
-                      <span className="hidden sm:inline">Поделиться</span>
+                      <span className="hidden sm:inline">{t("guide.shareGuide")}</span>
                     </motion.button>
                   </div>
                 </div>
@@ -472,23 +505,16 @@ export default function GuidePage() {
               </motion.div>
 
               {/* Описание видео */}
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 whileInView={{ opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
                 viewport={{ once: true }}
                 className="mt-8 pt-8 border-t border-gray-800"
               >
-                <h4 className="text-xl font-bold mb-4">Что вы узнаете из этого видео:</h4>
+                <h4 className="text-xl font-bold mb-4">{t("guideExtended.whatYouWillLearn")}</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {[
-                    "Регистрация и настройка аккаунта",
-                    "Навигация по интерфейсу платформы",
-                    "Использование сигналов и индикаторов",
-                    "Управление рисками и настройка стоп-лоссов",
-                    "Анализ графиков в реальном времени",
-                    "Экспорт данных и генерация отчетов"
-                  ].map((item, index) => (
+                  {t("guide.topics").split(', ').map((item: string, index: number) => (
                     <motion.div
                       key={item}
                       initial={{ opacity: 0, x: -20 }}
@@ -542,87 +568,33 @@ export default function GuidePage() {
       {/* Дополнительные инструкции */}
       <section className="py-20 px-4 bg-gradient-to-b from-transparent to-gray-900/30">
         <div className="container mx-auto max-w-6xl">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-3xl md:text-4xl font-bold text-center mb-4"
           >
-            ПОШАГОВОЕ <span className="text-blue-400">РУКОВОДСТВО</span>
+            {t("guideExtended.stepByStep")}
           </motion.h2>
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             viewport={{ once: true }}
             className="text-xl text-gray-400 text-center mb-12"
           >
-            Изучите платформу от А до Я
+            {t("guideExtended.learnPlatformAZ")}
           </motion.p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
-              { 
-                number: "01", 
-                title: "Регистрация", 
-                steps: [
-                  "Перейдите на главную страницу",
-                  "Нажмите кнопку 'Регистрация'",
-                  "Заполните форму данными",
-                  "Подтвердите email"
-                ] 
-              },
-              { 
-                number: "02", 
-                title: "Настройка", 
-                steps: [
-                  "Заполните профиль",
-                  "Настройте уведомления",
-                  "Выберите валютные пары",
-                  "Установите таймфреймы"
-                ] 
-              },
-              { 
-                number: "03", 
-                title: "Торговля", 
-                steps: [
-                  "Изучите сигналы",
-                  "Проанализируйте графики",
-                  "Установите стоп-лосс",
-                  "Откройте первую сделку"
-                ] 
-              },
-              { 
-                number: "04", 
-                title: "Анализ", 
-                steps: [
-                  "Следите за статистикой",
-                  "Корректируйте стратегию",
-                  "Используйте индикаторы",
-                  "Ведите дневник"
-                ] 
-              },
-              { 
-                number: "05", 
-                title: "Оптимизация", 
-                steps: [
-                  "Анализируйте результаты",
-                  "Тестируйте стратегии",
-                  "Используйте риск-менеджмент",
-                  "Автоматизируйте процессы"
-                ] 
-              },
-              { 
-                number: "06", 
-                title: "Поддержка", 
-                steps: [
-                  "Читайте FAQ",
-                  "Используйте чат",
-                  "Посещайте вебинары",
-                  "Оставляйте отзывы"
-                ] 
-              },
+              { number: "01", title: t("guide.registration"), steps: t("guide.registrationSteps").split('|') },
+              { number: "02", title: t("guide.setup"), steps: t("guide.setupSteps").split('|') },
+              { number: "03", title: t("guide.trading"), steps: t("guide.tradingSteps").split('|') },
+              { number: "04", title: t("guide.analysis"), steps: t("guide.analysisSteps").split('|') },
+              { number: "05", title: t("guide.optimization"), steps: t("guide.optimizationSteps").split('|') },
+              { number: "06", title: t("guide.support"), steps: t("guide.supportSteps").split('|') },
             ].map((section, index) => (
               <motion.div
                 key={section.number}
@@ -630,9 +602,9 @@ export default function GuidePage() {
                 whileInView={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
                 viewport={{ once: true }}
-                whileHover={{ 
-                  y: -10, 
-                  boxShadow: "0 20px 40px rgba(59, 130, 246, 0.2)" 
+                whileHover={{
+                  y: -10,
+                  boxShadow: "0 20px 40px rgba(59, 130, 246, 0.2)"
                 }}
                 className="bg-gradient-to-br from-gray-900/50 to-black/50 border border-white/10 rounded-2xl p-6 hover:border-blue-500/30 transition-all"
               >
@@ -654,7 +626,7 @@ export default function GuidePage() {
                 <h3 className="text-xl font-bold mb-4 text-blue-400">{section.title}</h3>
                 
                 <ul className="space-y-3">
-                  {section.steps.map((step, stepIndex) => (
+                  {section.steps.map((step: string, stepIndex: number) => (
                     <motion.li
                       key={stepIndex}
                       initial={{ opacity: 0, x: -20 }}
@@ -696,31 +668,31 @@ export default function GuidePage() {
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
             />
 
-            <motion.h2 
+            <motion.h2
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
               viewport={{ once: true }}
               className="text-3xl md:text-4xl font-bold mb-6 relative z-10"
             >
-              Готовы начать обучение?
+              {t("guide.readyToStart")}
             </motion.h2>
-            <motion.p 
+            <motion.p
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.2 }}
               viewport={{ once: true }}
               className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto relative z-10"
             >
-              Посмотрите полное видео-руководство и станьте экспертом в использовании Neura уже сегодня!
+              {t("guide.readyToStartDesc")}
             </motion.p>
-            
-            <motion.div 
+
+            <motion.div
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className="relative z-10 flex flex-col sm:flex-row gap-4 justify-center"
             >
-              <Button 
+              <Button
                 size="lg"
                 onClick={(e) => {
                   e.preventDefault();
@@ -729,16 +701,26 @@ export default function GuidePage() {
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-6 text-lg rounded-xl font-semibold shadow-lg shadow-blue-500/30"
               >
                 {isPlaying ? <Pause className="mr-2" /> : <Play className="mr-2" />}
-                {isPlaying ? "Пауза" : "Смотреть руководство"}
+                {isPlaying ? t("guide.pause") : t("guide.watchVideo")}
               </Button>
-              <Button 
-                size="lg"
-                variant="outline"
-                onClick={handleOpenRegister}
-                className="border-2 border-white/50 hover:border-white hover:bg-white/10 px-8 py-6 text-lg rounded-xl font-semibold backdrop-blur-sm"
-              >
-                Регистрация
-              </Button>
+              {!isAuthenticated && !user ? (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={handleOpenRegister}
+                  className="border-2 border-white/50 hover:border-white hover:bg-white/10 px-8 py-6 text-lg rounded-xl font-semibold backdrop-blur-sm"
+                >
+                  {t("guide.signUp")}
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  onClick={() => router.push("/Signals")}
+                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white px-8 py-6 text-lg rounded-xl font-semibold shadow-lg shadow-green-500/30"
+                >
+                  {t("header.getSignal")} <Zap className="ml-2" />
+                </Button>
+              )}
             </motion.div>
           </motion.div>
         </div>

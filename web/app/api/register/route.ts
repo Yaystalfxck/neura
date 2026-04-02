@@ -1,121 +1,81 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  findUserByEmail, 
-  findUserByPocketOptionId,
-  createUser,
-  getPocketOptionUser,
-  syncUserBalance
-} from '@/lib/database';
-import bcrypt from 'bcryptjs';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export async function POST(request: NextRequest) {
-  console.log('=== REGISTRATION WITH POCKETOPTION VALIDATION ===');
-  
+  console.log('=== REGISTRATION VIA PYTHON API ===');
+
   try {
-    const body = await request.json();
-    const { name, email, password, pocketOptionId } = body;
+    const rawBody = await request.json();
+    console.log('📥 Raw body from frontend:', JSON.stringify(rawBody, null, 2));
     
-    console.log('📝 Регистрация пользователя:', { 
-      email, 
-      pocketOptionId 
+    // Поддерживаем оба варианта имени поля
+    const { name, email, password, pocketOptionId, pocket_option_id, referralCode } = rawBody;
+    const poId = pocketOptionId || pocket_option_id;
+
+    console.log('📝 Регистрация пользователя:', { email, pocketOptionId: poId, referralCode });
+
+    // Проверяем, что pocketOptionId существует
+    if (!poId) {
+      console.error('❌ pocketOptionId is missing!');
+      return NextResponse.json({
+        success: false,
+        error: 'PocketOption ID is required'
+      }, { status: 400 });
+    }
+
+    // Формируем URL с referral_code как query параметр
+    let registerUrl = `${API_URL}/api/register`;
+    if (referralCode) {
+      registerUrl += `?referral_code=${encodeURIComponent(referralCode)}`;
+      console.log('🔗 Referral code added:', referralCode);
+    }
+
+    console.log('🌐 Backend URL:', registerUrl);
+
+    // Формируем body для backend
+    const backendBody = { name, email, password, pocket_option_id: poId };
+    console.log('📤 Sending to backend:', JSON.stringify(backendBody, null, 2));
+
+    // Вызов Python API
+    const response = await fetch(registerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backendBody),
     });
-    
-    // 🔴 1. ПРОВЕРКА ВСЕХ ПОЛЕЙ
-    if (!name || !email || !password || !pocketOptionId) {
-      const missing = [];
-      if (!name) missing.push('имя');
-      if (!email) missing.push('email');
-      if (!password) missing.push('пароль');
-      if (!pocketOptionId) missing.push('PocketOption ID');
-      
+
+    const data = await response.json();
+    console.log('📥 Response from backend:', JSON.stringify(data, null, 2));
+
+    if (!response.ok) {
+      console.log('❌ Ошибка регистрации:', data.detail || data.error);
+      const errorMessage = typeof (data.detail || data.error) === 'string' 
+        ? (data.detail || data.error)
+        : JSON.stringify(data.detail || data.error);
       return NextResponse.json({
         success: false,
-        error: `Заполните все обязательные поля: ${missing.join(', ')}`,
-        missingFields: missing
-      }, { status: 400 });
+        error: errorMessage
+      }, { status: response.status });
     }
-    
-    // 🔴 2. ПРОВЕРКА EMAIL
-    const existingEmail = await findUserByEmail(email);
-    if (existingEmail) {
-      return NextResponse.json({
-        success: false,
-        error: 'Пользователь с таким email уже зарегистрирован'
-      }, { status: 400 });
-    }
-    
-    // 🔴 3. ПРОВЕРКА POCKETOPTION ID В НАШЕЙ СИСТЕМЕ
-    const existingPocketOptionId = await findUserByPocketOptionId(pocketOptionId);
-    if (existingPocketOptionId) {
-      return NextResponse.json({
-        success: false,
-        error: 'Этот PocketOption ID уже используется другим пользователем'
-      }, { status: 400 });
-    }
-    
-    // 🔴 4. ПРОВЕРКА POCKETOPTION ID В POCKETOPTION БАЗЕ
-    const pocketOptionData = await getPocketOptionUser(pocketOptionId);
-    if (!pocketOptionData) {
-      // ID не найден в нашей базе - значит пользователь не зарегистрирован на PocketOption
-      return NextResponse.json({
-        success: false,
-        error: 'PocketOption ID не найден. Пожалуйста, сначала зарегистрируйтесь на PocketOption',
-        needPocketOptionRegistration: true
-      }, { status: 400 });
-    }
-    
-    console.log('✅ PocketOption данные найдены:', {
-      email: pocketOptionData.email,
-      balance: pocketOptionData.current_balance,
-      verification: pocketOptionData.verification_status
+
+    console.log('✅ Регистрация успешна:', {
+      id: data.user?.id,
+      email: data.user?.email,
+      referrer: data.referrer,
     });
-    
-    // 🔴 5. ХЕШИРОВАНИЕ ПАРОЛЯ
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    // 🔴 6. СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
-    const userData = {
-      name,
-      email,
-      password: hashedPassword,
-      pocketOptionId
-    };
-    
-    const newUser = await createUser(userData);
-    
-    // 🔴 7. СИНХРОНИЗАЦИЯ БАЛАНСА ИЗ POCKETOPTION
-    const syncedUser = await syncUserBalance(newUser.id, pocketOptionId);
-    
-    console.log('✅ Пользователь создан и синхронизирован:', {
-      id: syncedUser.id,
-      email: syncedUser.email,
-      balance: syncedUser.balance,
-      pocketOptionId: syncedUser.pocketOptionId
-    });
-    
+
     return NextResponse.json({
       success: true,
       message: 'Регистрация успешно завершена!',
-      user: {
-        id: syncedUser.id,
-        name: syncedUser.name,
-        email: syncedUser.email,
-        pocketOptionId: syncedUser.pocketOptionId,
-        balance: syncedUser.balance,
-        status: syncedUser.status
-      },
-      pocketoption_data: syncedUser.pocketoption_data
+      user: data.user,
+      referrer: data.referrer,
     });
-    
-  } catch (error) {
+
+  } catch (error: any) {
     console.error('❌ Registration error:', error);
-    
     return NextResponse.json({
       success: false,
-      error: 'Ошибка при регистрации',
-      details: process.env.NODE_ENV === 'development' 
-        ? (error as Error).message 
-        : undefined
+      error: error.message || 'Ошибка при регистрации'
     }, { status: 500 });
   }
 }
@@ -126,36 +86,27 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const email = url.searchParams.get('email');
     const pocketOptionId = url.searchParams.get('pocketOptionId');
-    
-    let checks: Record<string, any> = {};
-    
+
+    const checks: Record<string, any> = {};
+
     if (email) {
-      const existingEmail = await findUserByEmail(email);
-      checks.email = { exists: !!existingEmail };
+      const response = await fetch(`${API_URL}/api/register?email=${encodeURIComponent(email)}`);
+      const data = await response.json();
+      checks.email = data.checks?.email || { exists: false };
     }
-    
+
     if (pocketOptionId) {
-      // Проверяем в нашей базе пользователей
-      const existingPocketOptionId = await findUserByPocketOptionId(pocketOptionId);
-      checks.pocketOptionId = { 
-        existsInUsers: !!existingPocketOptionId,
-        email: existingPocketOptionId?.email
-      };
-      
-      // Проверяем в PocketOption базе
-      const pocketOptionData = await getPocketOptionUser(pocketOptionId);
-      checks.pocketOptionData = {
-        exists: !!pocketOptionData,
-        data: pocketOptionData || null
-      };
+      const response = await fetch(`${API_URL}/api/register?pocketOptionId=${encodeURIComponent(pocketOptionId)}`);
+      const data = await response.json();
+      checks.pocketOptionId = data.checks?.pocketOptionId || { exists: false };
     }
-    
+
     return NextResponse.json({
       success: true,
       checks,
       message: 'Проверка выполнена'
     });
-    
+
   } catch (error) {
     console.error('Check error:', error);
     return NextResponse.json({

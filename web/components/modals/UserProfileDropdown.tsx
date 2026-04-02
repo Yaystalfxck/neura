@@ -27,6 +27,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import { useAuth } from "@/app/contexts/AuthContext";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -35,12 +36,13 @@ interface UserProfileDropdownProps {
   variant?: "desktop" | "mobile";
 }
 
-export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({ 
+export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
   className,
   variant = "desktop"
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout, isAuthenticated } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
 
   // Закрытие меню при клике вне его
@@ -59,43 +61,43 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
   if (!isAuthenticated || !user) return null;
 
   const menuItems = [
-    { 
-      icon: User, 
-      label: "Мой профиль", 
+    {
+      icon: User,
+      label: t("userProfile.profile"),
       href: "/profile",
-      description: "Личные данные и настройки",
+      description: t("userProfile.profileDesc"),
       color: "text-blue-400"
     },
-    { 
-      icon: TrendingUp, 
-      label: "Торговые сигналы", 
+    {
+      icon: TrendingUp,
+      label: t("header.signals"),
       href: "/signals",
-      description: "Актуальные сигналы",
+      description: t("userProfile.signalsDesc"),
       color: "text-green-400",
       badge: "New"
     },
-    
-    { 
-      icon: CreditCard, 
-      label: "PocketOption", 
-      href: "https://pocketoption.com",
-      description: "Перейти к брокеру",
+
+    {
+      icon: CreditCard,
+      label: "PocketOption",
+      href: "https://po-ru4.click/register?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1686579&ac=users&cid=923101&code=WELCOME50",
+      description: t("userProfile.brokerDesc"),
       color: "text-orange-400",
       external: true
     },
-    { 
-      icon: Wallet, 
-      label: "Баланс и оплата", 
+    {
+      icon: Wallet,
+      label: t("userProfile.balance"),
       href: "/balance",
-      description: "Пополнить баланс",
+      description: t("userProfile.balanceDesc"),
       color: "text-emerald-400"
     },
-    
-    { 
-      icon: HelpCircle, 
-      label: "Поддержка", 
+
+    {
+      icon: HelpCircle,
+      label: t("header.support"),
       href: "/support",
-      description: "Помощь и контакты",
+      description: t("userProfile.supportDesc"),
       color: "text-cyan-400"
     },
   ];
@@ -224,7 +226,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
                         className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
                       >
                         <Zap className="w-3.5 h-3.5 mr-1.5" />
-                        Получить сигнал
+                        {t("userProfile.getSignal")}
                       </Button>
                       <Button
                         onClick={() => router.push("/balance")}
@@ -233,7 +235,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
                         className="w-full border-gray-700 hover:border-gray-600 hover:bg-gray-800/50 text-white"
                       >
                         <CreditCard className="w-3.5 h-3.5 mr-1.5" />
-                        Пополнить
+                        {t("userProfile.topUp")}
                       </Button>
                     </div>
 
@@ -306,7 +308,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
                     className="flex items-center justify-center gap-2 w-full p-2.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 cursor-pointer transition-colors group"
                   >
                     <LogOut className="w-4 h-4" />
-                    <span className="text-sm font-medium">Выйти из аккаунта</span>
+                    <span className="text-sm font-medium">{t("auth.logout")}</span>
                   </motion.button>
                 </div>
               </div>

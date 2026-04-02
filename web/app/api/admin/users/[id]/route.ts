@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/database'
 import { cookies } from 'next/headers'
 
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const cookieStore = await cookies()
@@ -19,13 +19,13 @@ export async function GET(
     }
 
     const db = await getDb()
-    
+
     // Проверяем админа
     const admin = await new Promise((resolve, reject) => {
       db.get(
         'SELECT role FROM users WHERE email = ?',
         [userEmail],
-        (err, row) => {
+        (err: Error, row: any) => {
           if (err) reject(err)
           else resolve(row)
         }
@@ -39,14 +39,15 @@ export async function GET(
       )
     }
 
-    const userId = parseInt(params.id)
+    const { id } = await params
+    const userId = parseInt(id)
 
     // Получаем пользователя
     const user = await new Promise((resolve, reject) => {
       db.get(
         `SELECT * FROM users WHERE id = ?`,
         [userId],
-        (err, row) => {
+        (err: Error, row: any) => {
           if (err) reject(err)
           else resolve(row)
         }
@@ -65,7 +66,7 @@ export async function GET(
       db.get(
         `SELECT * FROM pocketoption_users WHERE pocket_option_id = ?`,
         [(user as any).pocketOptionId],
-        (err, row) => {
+        (err: Error, row: any) => {
           if (err) reject(err)
           else resolve(row)
         }
@@ -81,7 +82,7 @@ export async function GET(
           COALESCE(SUM(CASE WHEN status = 'success' THEN total ELSE 0 END), 0) as profit
          FROM trades WHERE userId = ?`,
         [userId],
-        (err, row) => {
+        (err: Error, row: any) => {
           if (err) reject(err)
           else resolve(row)
         }
@@ -106,8 +107,8 @@ export async function GET(
 }
 
 export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const cookieStore = await cookies()
@@ -122,13 +123,13 @@ export async function DELETE(
     }
 
     const db = await getDb()
-    
+
     // Проверяем админа
     const admin = await new Promise((resolve, reject) => {
       db.get(
         'SELECT role FROM users WHERE email = ?',
         [userEmail],
-        (err, row) => {
+        (err: Error, row: any) => {
           if (err) reject(err)
           else resolve(row)
         }
@@ -142,14 +143,15 @@ export async function DELETE(
       )
     }
 
-    const userId = parseInt(params.id)
+    const { id } = await params
+    const userId = parseInt(id)
 
     // Удаляем пользователя (каскадно удалятся связанные записи)
     await new Promise((resolve, reject) => {
       db.run(
         'DELETE FROM users WHERE id = ?',
         [userId],
-        function(err) {
+        function(this: any, err: Error) {
           if (err) reject(err)
           else resolve(this)
         }

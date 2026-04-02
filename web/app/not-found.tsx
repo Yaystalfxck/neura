@@ -19,8 +19,10 @@ import {
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 export default function NotFound() {
+  const { t } = useLanguage();
   const router = useRouter();
   const [particles, setParticles] = useState<Array<{x: number, y: number, size: number}>>([]);
   const [isHovered, setIsHovered] = useState<string | null>(null);
@@ -43,8 +45,8 @@ export default function NotFound() {
     {
       id: "home",
       icon: Home,
-      title: "На главную",
-      description: "Вернуться на главную страницу",
+      title: t("notFound.backHome"),
+      description: t("notFound.backHome"),
       color: "from-blue-500/20 to-cyan-500/20",
       textColor: "text-blue-400",
       hoverColor: "hover:border-blue-500/50 hover:bg-blue-500/10",
@@ -53,8 +55,8 @@ export default function NotFound() {
     {
       id: "search",
       icon: Search,
-      title: "Поиск сигналов",
-      description: "Найти торговые сигналы",
+      title: t("notFound.searchSignals"),
+      description: t("notFound.findTradingSignals"),
       color: "from-green-500/20 to-emerald-500/20",
       textColor: "text-green-400",
       hoverColor: "hover:border-green-500/50 hover:bg-green-500/10",
@@ -63,8 +65,8 @@ export default function NotFound() {
     {
       id: "refresh",
       icon: RefreshCw,
-      title: "Обновить",
-      description: "Обновить текущую страницу",
+      title: t("notFound.refresh"),
+      description: t("notFound.refreshCurrentPage"),
       color: "from-purple-500/20 to-pink-500/20",
       textColor: "text-purple-400",
       hoverColor: "hover:border-purple-500/50 hover:bg-purple-500/10",
@@ -198,11 +200,10 @@ export default function NotFound() {
                 transition={{ duration: 0.6, delay: 0.5 }}
               >
                 <h2 className="text-4xl md:text-5xl font-bold mb-6">
-                  Страница не найдена
+                  {t("notFound.title")}
                 </h2>
                 <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-10">
-                  Кажется, мы потеряли эту страницу в космическом пространстве. 
-                  Но не волнуйтесь, у нас есть другие пути!
+                  {t("notFound.lostInSpace")}
                 </p>
               </motion.div>
 
@@ -258,7 +259,7 @@ export default function NotFound() {
                         {action.description}
                       </p>
                       <div className={`font-medium flex items-center gap-2 ${action.textColor}`}>
-                        Перейти 
+                        {t("notFound.goTo")}
                         <motion.span
                           animate={isHovered === action.id ? { x: 5 } : { x: 0 }}
                           transition={{ duration: 0.2 }}
@@ -275,7 +276,7 @@ export default function NotFound() {
                     variant="ghost"
                   >
                     <div className="flex items-center gap-4 mb-6">
-                      <motion.div 
+                      <motion.div
                         animate={isHovered === action.id ? { scale: 1.2, rotate: 180 } : {}}
                         transition={{ duration: 0.5 }}
                         className={`p-4 ${action.color} rounded-xl`}
@@ -288,7 +289,7 @@ export default function NotFound() {
                       {action.description}
                     </p>
                     <div className={`font-medium flex items-center gap-2 ${action.textColor}`}>
-                      Обновить 
+                      {t("notFound.refresh")}
                       <motion.span
                         animate={isHovered === action.id ? { rotate: 180 } : { rotate: 0 }}
                         transition={{ duration: 0.5 }}
@@ -318,11 +319,10 @@ export default function NotFound() {
                   >
                     <Compass className="w-8 h-8 text-yellow-400" />
                   </motion.div>
-                  <h3 className="text-2xl font-bold">Заблудились в навигации?</h3>
+                  <h3 className="text-2xl font-bold">{t("notFound.lostNav")}</h3>
                 </div>
                 <p className="text-gray-400">
-                  Используйте меню или карту сайта, чтобы найти нужную информацию. 
-                  Если проблема повторяется, свяжитесь с нашей службой поддержки.
+                  {t("notFound.useMenuToFind")}
                 </p>
               </div>
               
@@ -334,7 +334,7 @@ export default function NotFound() {
                     onClick={() => router.push('/support')}
                   >
                     <Navigation className="w-4 h-4 mr-2" />
-                    Поддержка
+                    {t("notFound.support")}
                   </Button>
                 </motion.div>
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -363,11 +363,11 @@ export default function NotFound() {
               className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-500/20 to-purple-500/20 px-8 py-4 rounded-full border border-white/10 backdrop-blur-sm"
             >
               <Sparkles className="w-5 h-5 text-blue-400" />
-              <span className="text-gray-300">AI: Neural Network • Status: Searching...</span>
+              <span className="text-gray-300">{t("notFound.aiStatus")}</span>
               <motion.div
                 animate={{ rotate: 360 }}
-                transition={{ 
-                  repeat: Infinity, 
+                transition={{
+                  repeat: Infinity,
                   duration: 2,
                   ease: "linear"
                 }}

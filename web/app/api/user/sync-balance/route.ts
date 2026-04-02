@@ -1,56 +1,39 @@
-import { NextResponse } from 'next/server'
-import { syncUserBalance, getDb } from '@/lib/database'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// POST - Синхронизация баланса
+export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('neura-session')?.value
-    const userEmail = cookieStore.get('user-email')?.value
+    const authToken = request.cookies.get('auth-token')?.value;
 
-    if (!sessionToken || !userEmail) {
+    if (!authToken) {
       return NextResponse.json(
         { success: false, error: 'Не авторизован' },
         { status: 401 }
-      )
+      );
     }
 
-    const { userId, pocketOptionId } = await request.json()
+    const response = await fetch(`${API_URL}/api/user/sync-balance`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
 
-    const db = await getDb()
-    
-    // Проверяем сессию
-    const session = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT * FROM sessions WHERE userId = ? AND token = ? AND expiresAt > datetime("now")',
-        [userId, sessionToken],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
-    })
+    const data = await response.json();
 
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: 'Сессия истекла' },
-        { status: 401 }
-      )
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status });
     }
 
-    // Синхронизируем баланс
-    const result = await syncUserBalance(userId, pocketOptionId)
+    return NextResponse.json(data);
 
-    return NextResponse.json({
-      success: true,
-      balance: result.balance || 0,
-      pocketoption_data: result.pocketoption_data
-    })
   } catch (error) {
-    console.error('Error syncing balance:', error)
+    console.error('❌ Sync balance error:', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка синхронизации баланса' },
+      { success: false, error: 'Ошибка при синхронизации баланса' },
       { status: 500 }
-    )
+    );
   }
 }

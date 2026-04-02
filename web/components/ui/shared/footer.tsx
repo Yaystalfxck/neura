@@ -4,16 +4,19 @@
 import React from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 interface FooterProps {
   showBrand?: boolean;
 }
 
 export const Footer: React.FC<FooterProps> = ({ showBrand = true }) => {
+  const { t } = useLanguage();
+  
   const footerLinks = [
-    { title: "Партнерская программа", href: "/affiliate" },
-    { title: "Условия пользования", href: "/terms" },
-    { title: "Политика конфиденциальности", href: "/privacy" },
+    { title: t("header.partners"), href: "/partners" },
+    { title: t("footer.terms"), href: "/terms" },
+    { title: t("footer.privacy"), href: "/privacy" },
   ];
 
   return (
@@ -56,14 +59,14 @@ export const Footer: React.FC<FooterProps> = ({ showBrand = true }) => {
         ))}
       </div>
       
-      <motion.p 
+      <motion.p
         initial={{ opacity: 0 }}
         whileInView={{ opacity: 1 }}
         transition={{ duration: 0.6, delay: 0.9 }}
         viewport={{ once: true }}
         className="mt-8 text-gray-500 text-sm text-center"
       >
-        © {new Date().getFullYear()} Neura. Все права защищены.
+        © {new Date().getFullYear()} {t("footer.brand")}. {t("footer.allRightsReserved")}
       </motion.p>
     </motion.div>
   );

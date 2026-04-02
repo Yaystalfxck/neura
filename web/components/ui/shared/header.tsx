@@ -35,6 +35,8 @@ import { LoginDialog } from "@/components/modals/LoginDialog";
 import { RegisterDialog } from "@/components/modals/RegisterDialog";
 import { UserProfileDropdown } from "@/components/modals/UserProfileDropdown";
 import { useAuth } from "@/app/contexts/AuthContext";
+import { useLanguage } from "@/app/contexts/LanguageContext";
+import { LanguageSwitcher } from "@/components/ui/shared/LanguageSwitcher";
 
 interface Props {
     className?: string;
@@ -50,6 +52,7 @@ export const Header: React.FC<Props> = ({ className }) => {
     const pathname = usePathname();
     const router = useRouter();
     const { user, isAuthenticated, logout } = useAuth();
+    const { t, language, setLanguage } = useLanguage();
 
     // Эффект для отслеживания скролла с debounce
     useEffect(() => {
@@ -82,32 +85,22 @@ export const Header: React.FC<Props> = ({ className }) => {
     }, [isMenuOpen]);
 
     const navLinks = [
-        { id: "home", href: "/", label: "Главная", icon: <Home className="w-5 h-5" /> },
-        { id: "about", href: "/about", label: "О нас", icon: <Info className="w-5 h-5" /> },
-        { id: "guide", href: "/guide", label: "Инструкция", icon: <BookOpen className="w-5 h-5" /> },
-        { id: "partners", href: "/partners", label: "Партнёрам", external: true, icon: <Handshake className="w-5 h-5" /> }
+        { id: "home", href: "/", label: t("header.home"), icon: <Home className="w-5 h-5" /> },
+        { id: "about", href: "/about", label: t("header.about"), icon: <Info className="w-5 h-5" /> },
+        { id: "guide", href: "/guide", label: t("header.guide"), icon: <BookOpen className="w-5 h-5" /> },
+        { id: "partners", href: "/partners", label: t("header.partners"), icon: <Handshake className="w-5 h-5" /> }
     ];
 
     const protectedLinks = [
-        { id: "signals", href: "/Signals", label: "Торговые сигналы", icon: <TrendingUp className="w-5 h-5" /> },
-        
-        
+        { id: "signals", href: "/Signals", label: t("header.signals"), icon: <TrendingUp className="w-5 h-5" /> },
     ];
 
     const userLinks = [
-        { id: "profile", href: "/profile", label: "Профиль", icon: <User className="w-5 h-5" /> },
-        { id: "balance", href: "/balance", label: "Баланс", icon: <Wallet className="w-5 h-5" /> },
-        { id: "settings", href: "/settings", label: "Настройки", icon: <Settings className="w-5 h-5" /> },
-        { id: "support", href: "/support", label: "Поддержка", icon: <HelpCircle className="w-5 h-5" /> },
+        { id: "profile", href: "/profile", label: t("header.profile"), icon: <User className="w-5 h-5" /> },
+        { id: "balance", href: "/balance", label: t("header.balance"), icon: <Wallet className="w-5 h-5" /> },
+        { id: "settings", href: "/settings", label: t("header.settings"), icon: <Settings className="w-5 h-5" /> },
+        { id: "support", href: "/support", label: t("header.support"), icon: <HelpCircle className="w-5 h-5" /> },
     ];
-
-    const handleGetSignal = () => {
-        if (isAuthenticated) {
-            router.push("/Signals");
-        } else {
-            setIsLoginDialogOpen(true);
-        }
-    };
 
     const handleLogout = async () => {
         await logout();
@@ -288,29 +281,19 @@ export const Header: React.FC<Props> = ({ className }) => {
 
                         {/* Правая часть */}
                         <div className="flex items-center gap-3">
-                            {/* Кнопка "Получить сигнал" - десктоп */}
-                            <motion.div
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="hidden lg:block"
+                            {/* Кнопка поддержки */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => router.push('/support')}
+                                className="hidden lg:flex items-center gap-2 text-gray-400 hover:text-white hover:bg-gray-800"
                             >
-                                <Button 
-                                    onClick={handleGetSignal}
-                                    className="relative group"
-                                >
-                                    <div className="absolute inset-0 bg-gradient-to-r from-green-600 to-emerald-600 rounded-lg blur opacity-75 group-hover:opacity-100 transition-opacity" />
-                                    <div className="relative px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg text-white font-medium hover:from-green-600 hover:to-emerald-600 transition-all">
-                                        <span className="flex items-center gap-2">
-                                            <motion.span
-                                                animate={{ scale: [1, 1.2, 1] }}
-                                                transition={{ duration: 2, repeat: Infinity }}
-                                                className="inline-block w-2 h-2 bg-white rounded-full"
-                                            />
-                                            Получить сигнал
-                                        </span>
-                                    </div>
-                                </Button>
-                            </motion.div>
+                                <HelpCircle className="w-4 h-4" />
+                                <span className="text-sm">{t("header.support")}</span>
+                            </Button>
+
+                            {/* Переключатель языка */}
+                            <LanguageSwitcher />
 
                             {isAuthenticated ? (
                                 // Для десктопа - красивый профиль
@@ -325,25 +308,25 @@ export const Header: React.FC<Props> = ({ className }) => {
                                         whileTap={{ scale: 0.95 }}
                                         className="hidden lg:block"
                                     >
-                                        <Button 
+                                        <Button
                                             onClick={() => setIsLoginDialogOpen(true)}
-                                            variant="outline" 
+                                            variant="outline"
                                             className="border-gray-700 hover:border-gray-600 hover:bg-gray-900/50 text-white rounded-lg"
                                         >
-                                            Войти
+                                            {t("auth.signIn")}
                                         </Button>
                                     </motion.div>
-                                    
+
                                     <motion.div
                                         whileHover={{ scale: 1.05 }}
                                         whileTap={{ scale: 0.95 }}
                                         className="hidden lg:block"
                                     >
-                                        <Button 
+                                        <Button
                                             onClick={() => setIsRegisterDialogOpen(true)}
                                             className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg"
                                         >
-                                            Регистрация
+                                            {t("auth.registerTitle")}
                                         </Button>
                                     </motion.div>
                                 </>
@@ -429,7 +412,7 @@ export const Header: React.FC<Props> = ({ className }) => {
                                                     </h3>
                                                     <div className="flex items-center gap-2 mt-1">
                                                         <div className="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded text-xs font-medium">
-                                                            Баланс: ${user?.balance?.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) || '0.00'}
+                                                            {t("header.balance")}: ${user?.balance?.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) || '0.00'}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -446,7 +429,7 @@ export const Header: React.FC<Props> = ({ className }) => {
                                                     className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white"
                                                 >
                                                     <User className="w-4 h-4 mr-1" />
-                                                    Профиль
+                                                    {t("header.profile")}
                                                 </Button>
                                                 <Button
                                                     onClick={handleLogout}
@@ -455,7 +438,7 @@ export const Header: React.FC<Props> = ({ className }) => {
                                                     className="border-red-700 hover:border-red-600 hover:bg-red-900/20 text-red-400"
                                                 >
                                                     <LogOut className="w-4 h-4 mr-1" />
-                                                    Выйти
+                                                    {t("auth.logout")}
                                                 </Button>
                                             </div>
                                         </motion.div>
@@ -623,32 +606,6 @@ export const Header: React.FC<Props> = ({ className }) => {
                                         </>
                                     )}
 
-                                    {/* Главная кнопка "Получить сигнал" */}
-                                    <div className="px-4 mb-6">
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: 0.5 }}
-                                        >
-                                            <Button 
-                                                onClick={() => {
-                                                    handleGetSignal();
-                                                    setIsMenuOpen(false);
-                                                }}
-                                                size="lg"
-                                                className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl shadow-lg shadow-green-500/30"
-                                            >
-                                                <Zap className="w-5 h-5 mr-2" />
-                                                Получить сигнал
-                                                {!isAuthenticated && (
-                                                    <span className="ml-2 px-2 py-0.5 bg-white/20 rounded text-xs">
-                                                        бесплатно
-                                                    </span>
-                                                )}
-                                            </Button>
-                                        </motion.div>
-                                    </div>
-
                                     {/* Для неавторизованных - кнопки входа и регистрации */}
                                     {!isAuthenticated && (
                                         <div className="px-4">
@@ -660,10 +617,10 @@ export const Header: React.FC<Props> = ({ className }) => {
                                             >
                                                 <div className="flex items-center gap-3 mb-3">
                                                     <Shield className="w-5 h-5 text-blue-400" />
-                                                    <h4 className="font-medium text-white">Безопасный вход</h4>
+                                                    <h4 className="font-medium text-white">{t("auth.secureLogin")}</h4>
                                                 </div>
                                                 <p className="text-sm text-gray-400 mb-4">
-                                                    Войдите в аккаунт для доступа ко всем функциям и сигналам
+                                                    {t("auth.loginToAccessAll")}
                                                 </p>
                                                 <div className="grid grid-cols-2 gap-2">
                                                     <Button
@@ -675,7 +632,7 @@ export const Header: React.FC<Props> = ({ className }) => {
                                                         className="border-gray-700 hover:border-gray-600 hover:bg-gray-900/50 text-white rounded-lg"
                                                     >
                                                         <User className="w-4 h-4 mr-2" />
-                                                        Войти
+                                                        {t("auth.login")}
                                                     </Button>
                                                     <Button
                                                         onClick={() => {
@@ -685,7 +642,7 @@ export const Header: React.FC<Props> = ({ className }) => {
                                                         className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg"
                                                     >
                                                         <LogIn className="w-4 h-4 mr-2" />
-                                                        Регистрация
+                                                        {t("auth.register")}
                                                     </Button>
                                                 </div>
                                             </motion.div>
@@ -696,32 +653,32 @@ export const Header: React.FC<Props> = ({ className }) => {
                                 {/* Футер меню */}
                                 <div className="p-6 border-t border-white/10">
                                     <div className="flex items-center justify-between mb-3">
-                                        <span className="text-sm text-gray-500">Версия 1.0.0</span>
+                                        <span className="text-sm text-gray-500">{t("footer.version")} 1.0.0</span>
                                         <button className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/5">
                                             <Moon className="w-5 h-5" />
                                         </button>
                                     </div>
                                     <div className="flex gap-4">
-                                        <Link 
-                                            href="/privacy" 
+                                        <Link
+                                            href="/privacy"
                                             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
-                                            Конфиденциальность
+                                            {t("footer.privacy")}
                                         </Link>
-                                        <Link 
-                                            href="/terms" 
+                                        <Link
+                                            href="/terms"
                                             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
-                                            Условия
+                                            {t("footer.terms")}
                                         </Link>
-                                        <Link 
-                                            href="/support" 
+                                        <Link
+                                            href="/support"
                                             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
                                             onClick={() => setIsMenuOpen(false)}
                                         >
-                                            Поддержка
+                                            {t("header.support")}
                                         </Link>
                                     </div>
                                 </div>

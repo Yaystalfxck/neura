@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { Biryani } from "next/font/google";
 import "./globals.css";
-import { Header } from "@/components/ui/shared/header";
-import { Footer } from "@/components/ui/shared/footer"; // Добавьте импорт футера
 import { AuthProvider } from "@/app/contexts/AuthContext";
 import { Providers } from './providers'
-import CookieConsent from "@/components/modals/CookieConsent";
+import { BalanceSyncProvider } from "@/components/BalanceSyncProvider";
+import { LanguageProvider } from "@/app/contexts/LanguageContext";
+import { ReferralProvider } from "@/app/contexts/ReferralContext";
+import { LayoutWrapper } from "@/components/LayoutWrapper";
 
 const biryani = Biryani({
   subsets: ['latin'],
@@ -21,7 +22,7 @@ const biryaniSemiBold = Biryani({
 
 export const metadata: Metadata = {
   title: "Neura | AI Trading Signals",
-  description: "Точные торговые сигналы на основе искусственного интеллекта",
+  description: "Accurate trading signals based on artificial intelligence",
 };
 
 export default function RootLayout({
@@ -30,20 +31,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" className={`${biryani.variable} ${biryaniSemiBold.variable}`}>
+    <html lang="en" className={`${biryani.variable} ${biryaniSemiBold.variable}`}>
       <body className="antialiased">
         <Providers>
-          <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black">
-            <Header />
-            
-              {children}
-            
-            {/* Футер добавлен в глобальный layout */}
-            <CookieConsent />
-            <Footer showBrand={false} /> {/* Не показываем бренд в layout, только на главной */}
-            
-          </div>
-      
+          <LanguageProvider>
+            <AuthProvider>
+              <ReferralProvider>
+                <BalanceSyncProvider>
+                  <LayoutWrapper>
+                    {children}
+                  </LayoutWrapper>
+                </BalanceSyncProvider>
+              </ReferralProvider>
+            </AuthProvider>
+          </LanguageProvider>
         </Providers>
       </body>
     </html>

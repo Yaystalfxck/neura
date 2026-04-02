@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { 
+import {
   Users,
   Search,
   Filter,
@@ -42,13 +42,19 @@ import {
   Moon,
   Sun,
   Menu,
-  CreditCard
+  CreditCard,
+  MessageCircle,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/app/contexts/AuthContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { toast } from "sonner";
+import { AdminNav } from "@/components/admin/AdminNav";
+import { RoleSelectorModal } from "@/components/admin/RoleSelectorModal";
+import { MobileAdminHeader, MobileSidebar } from "@/components/admin/MobileAdminHeader";
 
 interface User {
   id: number;
@@ -137,6 +143,9 @@ function AdminUsersContent() {
   const [sortBy, setSortBy] = useState<string>('newest');
   const [selectedUser, setSelectedUser] = useState<UserWithPO | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [userForRoleChange, setUserForRoleChange] = useState<{id: number, currentRole: string} | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [stats, setStats] = useState<Stats>({
     totalUsers: 0,
     activeUsers: 0,
@@ -183,17 +192,27 @@ function AdminUsersContent() {
       const response = await fetch(`/api/admin/users?${params}`, {
         credentials: 'include'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
+        if (data.success && data.users && data.pagination) {
           setUsers(data.users);
           setStats(data.stats);
           setTotalPages(data.pagination.totalPages);
+        } else {
+          console.error('API returned error:', data);
+          setUsers([]);
+          setTotalPages(0);
         }
+      } else {
+        console.error('API response not ok:', response.status);
+        setUsers([]);
+        setTotalPages(0);
       }
     } catch (error) {
       console.error('Error loading users:', error);
+      setUsers([]);
+      setTotalPages(0);
     } finally {
       setIsLoading(false);
     }
@@ -206,8 +225,10 @@ function AdminUsersContent() {
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
+        if (data.success && data.stats) {
           setPayoutStats(data.stats);
+        } else {
+          console.error('Payout stats API error:', data);
         }
       }
     } catch (error) {
@@ -245,11 +266,11 @@ function AdminUsersContent() {
 
   const handleToggleUserStatus = async (userId: number, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'blocked' : 'active';
-    
+
     if (!confirm(`Вы уверены, что хотите ${newStatus === 'active' ? 'разблокировать' : 'заблокировать'} пользователя?`)) {
       return;
     }
-    
+
     try {
       const response = await fetch(`/api/admin/users/${userId}/status`, {
         method: 'PUT',
@@ -257,7 +278,7 @@ function AdminUsersContent() {
         body: JSON.stringify({ status: newStatus }),
         credentials: 'include'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -266,6 +287,39 @@ function AdminUsersContent() {
       }
     } catch (error) {
       console.error('Error toggling user status:', error);
+    }
+  };
+
+  const handleOpenRoleModal = (userId: number, currentRole: string) => {
+    setUserForRoleChange({ id: userId, currentRole });
+    setShowRoleModal(true);
+  };
+
+  const handleApplyRole = async (newRole: string) => {
+    if (!userForRoleChange) return;
+
+    try {
+      const response = await fetch(`/api/admin/users/${userForRoleChange.id}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+        credentials: 'include'
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast.success(`Роль изменена на "${newRole}"`);
+        loadUsers();
+      } else {
+        const errorMsg = data.detail || data.error || 'Ошибка при изменении роли';
+        toast.error(errorMsg);
+      }
+    } catch (error) {
+      console.error('Error changing role:', error);
+      toast.error('Ошибка при изменении роли');
+    } finally {
+      setUserForRoleChange(null);
     }
   };
 
@@ -382,9 +436,23 @@ function AdminUsersContent() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gradient-to-b from-black via-gray-900 to-black text-white' : 'bg-gray-50 text-gray-900'}`}>
-      {/* Sidebar */}
-      <div className={`fixed left-0 top-0 h-full w-64 ${darkMode ? 'bg-gray-900/90 border-gray-800' : 'bg-white border-gray-200'} border-r backdrop-blur-xl z-30`}>
-        <div className="p-6">
+      {/* Mobile Header */}
+      <MobileAdminHeader
+        userRole={user?.role}
+        showMenu={showMobileMenu}
+        setShowMenu={setShowMobileMenu}
+      />
+      
+      {/* Mobile Sidebar */}
+      <MobileSidebar
+        userRole={user?.role}
+        showMenu={showMobileMenu}
+        setShowMenu={setShowMobileMenu}
+      />
+
+      {/* Desktop Sidebar */}
+      <div className={`hidden lg:block fixed left-0 top-0 h-full w-64 ${darkMode ? 'bg-gray-900/90 border-gray-800' : 'bg-white border-gray-200'} border-r backdrop-blur-xl z-30`}>
+        <div className="p-6 pt-6">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
               <Shield className="w-5 h-5 text-white" />
@@ -394,59 +462,10 @@ function AdminUsersContent() {
               <p className="text-xs text-gray-500">v1.0.0</p>
             </div>
           </div>
-          
-          <nav className="space-y-2">
-            <button 
-              onClick={() => router.push('/admin/users')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                pathname === '/admin/users' 
-                  ? darkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white'
-                  : darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-              }`}
-            >
-              <Users className="w-5 h-5" />
-              <span>Пользователи</span>
-            </button>
 
-            <button 
-              onClick={() => router.push('/admin/payouts')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                pathname === '/admin/payouts'
-                  ? darkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white'
-                  : darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-              }`}
-            >
-              <Wallet className="w-5 h-5" />
-              <span>Выплаты</span>
-              {payoutStats.totalPending > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-                  {payoutStats.totalPending}
-                </span>
-              )}
-            </button>
-
-            <button 
-              onClick={() => router.push('/admin/statistics')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-              }`}
-            >
-              <BarChart3 className="w-5 h-5" />
-              <span>Статистика</span>
-            </button>
-
-            <button 
-              onClick={() => router.push('/admin/settings')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-              }`}
-            >
-              <Settings className="w-5 h-5" />
-              <span>Настройки</span>
-            </button>
-          </nav>
+          <AdminNav userRole={user?.role} darkMode={darkMode} onNavigate={() => setShowMobileMenu(false)} />
         </div>
-        
+
         <div className="absolute bottom-0 left-0 right-0 p-6">
           <button 
             onClick={() => setDarkMode(!darkMode)}
@@ -470,14 +489,14 @@ function AdminUsersContent() {
       </div>
 
       {/* Main Content */}
-      <div className="ml-64 p-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+      <div className="lg:ml-64 p-4 md:p-6 lg:p-8 pt-16 lg:pt-8">
+        {/* Header - показан только на desktop */}
+        <div className="hidden lg:flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               Управление пользователями
             </h1>
-            <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
+            <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} mt-1 text-sm md:text-base`}>
               Всего пользователей: {stats.totalUsers}
             </p>
           </div>
@@ -692,19 +711,47 @@ function AdminUsersContent() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="font-medium">{user.total_referrals}</div>
+                      <div className="font-medium">{user.total_referrals || 0}</div>
                       <div className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        Активных: {user.active_referrals}
+                        Активных: {user.active_referrals || 0}
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="font-medium text-green-400">+${user.total_commission.toFixed(2)}</div>
+                      <div className="font-medium text-green-400">+${(user.total_commission || 0).toFixed(2)}</div>
                       <div className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        Ожидает: ${user.pending_commission.toFixed(2)}
+                        Ожидает: ${(user.pending_commission || 0).toFixed(2)}
                       </div>
                     </td>
                     <td className="p-4">
                       {getStatusBadge(user.status)}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          (user as any).role === 'admin'
+                            ? 'bg-purple-500/20 text-purple-400'
+                            : (user as any).role === 'support'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : 'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {(user as any).role === 'admin' ? 'ADMIN' : (user as any).role === 'support' ? 'SUPPORT' : 'USER'}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleOpenRoleModal(user.id, (user as any).role || 'user')}
+                          className={`h-6 w-6 p-0 ${
+                            (user as any).role === 'admin'
+                              ? 'hover:bg-purple-900/30 hover:text-purple-400'
+                              : (user as any).role === 'support'
+                                ? 'hover:bg-blue-900/30 hover:text-blue-400'
+                                : 'hover:bg-gray-700 hover:text-gray-300'
+                          }`}
+                          title="Изменить роль"
+                        >
+                          <Shield className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </td>
                     <td className="p-4">
                       <div className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -871,20 +918,20 @@ function AdminUsersContent() {
                   </div>
                   <div className="flex justify-between">
                     <span className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Lifetime Value:</span>
-                    <span className="font-bold text-blue-400">${selectedUser.lifetime_value.toFixed(2)}</span>
+                    <span className="font-bold text-blue-400">${(selectedUser.lifetime_value || 0).toFixed(2)}</span>
                   </div>
                   <div className="border-t border-gray-700 my-2"></div>
                   <div className="flex justify-between">
                     <span className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Всего комиссии:</span>
-                    <span className="text-green-400">+${selectedUser.total_commission.toFixed(2)}</span>
+                    <span className="text-green-400">+${(selectedUser.total_commission || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Ожидает выплаты:</span>
-                    <span className="text-yellow-400">${selectedUser.pending_commission.toFixed(2)}</span>
+                    <span className="text-yellow-400">${(selectedUser.pending_commission || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={`${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Выплачено:</span>
-                    <span className="text-green-400">${selectedUser.paid_commission.toFixed(2)}</span>
+                    <span className="text-green-400">${(selectedUser.paid_commission || 0).toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -1010,6 +1057,19 @@ function AdminUsersContent() {
             </div>
           </motion.div>
         </div>
+      )}
+
+      {/* Role Selector Modal */}
+      {userForRoleChange && (
+        <RoleSelectorModal
+          isOpen={showRoleModal}
+          onClose={() => {
+            setShowRoleModal(false);
+            setUserForRoleChange(null);
+          }}
+          onSelect={handleApplyRole}
+          currentRole={userForRoleChange.currentRole}
+        />
       )}
     </div>
   );

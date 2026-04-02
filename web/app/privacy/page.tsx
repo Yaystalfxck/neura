@@ -6,8 +6,10 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Lock, Shield, Database, Eye, EyeOff, Server, Key, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 export default function PrivacyPage() {
+  const { t } = useLanguage();
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white">
       {/* Animated Background Elements */}
@@ -49,16 +51,16 @@ export default function PrivacyPage() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-4xl md:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white to-green-200"
           >
-            Политика конфиденциальности
+            {t("privacy.title")}
           </motion.h1>
-          
+
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.3 }}
             className="text-xl text-gray-400 max-w-2xl mx-auto"
           >
-            Как мы защищаем и используем ваши данные
+            {t("privacy.subtitle")}
           </motion.p>
         </motion.div>
 
@@ -78,9 +80,9 @@ export default function PrivacyPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30">
                 <Database className="w-6 h-6 text-blue-400" />
               </div>
-              <h2 className="text-2xl font-bold">1. Какие данные мы собираем</h2>
+              <h2 className="text-2xl font-bold">{t("privacy.section1Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -94,29 +96,27 @@ export default function PrivacyPage() {
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <Eye className="w-5 h-5 text-green-400" />
-                    <h3 className="font-semibold">Основные данные</h3>
+                    <h3 className="font-semibold">{t("privacy.basicData")}</h3>
                   </div>
                   <ul className="space-y-2 text-sm text-gray-400">
-                    <li>• Имя и контактная информация</li>
-                    <li>• Email адрес</li>
-                    <li>• PocketOption ID</li>
-                    <li>• Информация об аккаунте</li>
+                    {t("privacy.basicDataItems").split(', ').map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
                   </ul>
                 </motion.div>
-                
+
                 <motion.div
                   whileHover={{ y: -5 }}
                   className="p-4 rounded-lg bg-gray-900/50 border border-gray-800"
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <EyeOff className="w-5 h-5 text-red-400" />
-                    <h3 className="font-semibold">Что мы НЕ собираем</h3>
+                    <h3 className="font-semibold">{t("privacy.notCollect")}</h3>
                   </div>
                   <ul className="space-y-2 text-sm text-gray-400">
-                    <li>• Платежные данные (карты, кошельки)</li>
-                    <li>• Паспортные данные</li>
-                    <li>• Конфиденциальная финансовая информация</li>
-                    <li>• Файлы cookie третьих лиц</li>
+                    {t("privacy.notCollectItems").split(', ').map((item, i) => (
+                      <li key={i}>• {item}</li>
+                    ))}
                   </ul>
                 </motion.div>
               </div>
@@ -137,9 +137,9 @@ export default function PrivacyPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/20 border border-cyan-500/30">
                 <Server className="w-6 h-6 text-cyan-400" />
               </div>
-              <h2 className="text-2xl font-bold">2. Как мы защищаем данные</h2>
+              <h2 className="text-2xl font-bold">{t("privacy.section2Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -147,15 +147,14 @@ export default function PrivacyPage() {
               className="space-y-4 text-gray-300"
             >
               <p>
-                Мы используем современные технологии шифрования и защиты данных для обеспечения 
-                безопасности вашей информации.
+                {t("privacy.protectionDesc")}
               </p>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                 {[
-                  { icon: Key, title: "Шифрование", desc: "AES-256 шифрование всех данных", color: "green" },
-                  { icon: Shield, title: "Защита", desc: "DDoS защита и брандмауэры", color: "blue" },
-                  { icon: Lock, title: "Доступ", desc: "Двухфакторная аутентификация", color: "purple" },
+                  { icon: Key, title: t("privacy.encryption"), desc: t("privacy.encryptionDesc"), color: "green" },
+                  { icon: Shield, title: t("privacy.protection"), desc: t("privacy.protectionDesc2"), color: "blue" },
+                  { icon: Lock, title: t("privacy.access"), desc: t("privacy.accessDesc"), color: "purple" },
                 ].map((item, index) => (
                   <motion.div
                     key={item.title}
@@ -190,9 +189,9 @@ export default function PrivacyPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 border border-yellow-500/30">
                 <Download className="w-6 h-6 text-yellow-400" />
               </div>
-              <h2 className="text-2xl font-bold">3. Ваши права</h2>
+              <h2 className="text-2xl font-bold">{t("privacy.section3Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -200,22 +199,22 @@ export default function PrivacyPage() {
               className="space-y-4 text-gray-300"
             >
               <p>
-                Вы имеете полное право контролировать свои персональные данные.
+                {t("privacy.rightsDesc")}
               </p>
-              
+
               <motion.div
-                animate={{ 
+                animate={{
                   x: [0, 5, 0],
                   transition: { repeat: Infinity, duration: 2 }
                 }}
                 className="p-4 rounded-lg bg-green-900/20 border border-green-800/50 mt-6"
               >
-                <h4 className="font-semibold text-green-300 mb-2">Вы можете:</h4>
+                <h4 className="font-semibold text-green-300 mb-2">{t("privacy.youCan")}</h4>
                 <ul className="space-y-2 text-sm text-green-200/80">
-                  <li>• Запросить доступ к вашим данным</li>
-                  <li>• Исправить неточную информацию</li>
-                  <li>• Удалить свой аккаунт и данные</li>
-                  <li>• Отозвать согласие на обработку</li>
+                  <li>• {t("privacy.requestAccess")}</li>
+                  <li>• {t("privacy.correctData")}</li>
+                  <li>• {t("privacy.deleteAccount")}</li>
+                  <li>• {t("privacy.withdrawConsent")}</li>
                 </ul>
               </motion.div>
             </motion.div>
@@ -235,9 +234,9 @@ export default function PrivacyPage() {
               <div className="p-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30">
                 <Shield className="w-6 h-6 text-purple-400" />
               </div>
-              <h2 className="text-2xl font-bold">4. Согласие и контакты</h2>
+              <h2 className="text-2xl font-bold">{t("privacy.section4Title")}</h2>
             </motion.div>
-            
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -245,33 +244,32 @@ export default function PrivacyPage() {
               className="space-y-4 text-gray-300"
             >
               <p>
-                Используя наш сервис, вы даете согласие на обработку данных в соответствии с этой политикой.
+                {t("privacy.consentDesc")}
               </p>
-              
+
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 className="p-4 rounded-lg bg-gray-900/50 border border-gray-800 mt-6"
               >
-                <h4 className="font-semibold mb-2">Контакты для вопросов</h4>
+                <h4 className="font-semibold mb-2">{t("privacy.contactsTitle")}</h4>
                 <p className="text-sm text-gray-400 mb-3">
-                  Если у вас есть вопросы о политике конфиденциальности или вы хотите 
-                  воспользоваться своими правами, свяжитесь с нами:
+                  {t("privacy.contactsDesc")}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4">
                   <Link href="/terms">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       className="w-full sm:w-auto border-gray-700 hover:border-blue-500 hover:bg-blue-900/20"
                     >
-                      Условия пользования
+                      {t("privacy.termsOfUse")}
                     </Button>
                   </Link>
                   <Link href="/">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       className="w-full sm:w-auto border-gray-700 hover:border-green-500 hover:bg-green-900/20"
                     >
-                      На главную
+                      {t("privacy.home")}
                     </Button>
                   </Link>
                 </div>
@@ -301,9 +299,9 @@ export default function PrivacyPage() {
             <Shield className="w-8 h-8 text-green-400" />
           </motion.div>
           
-          <h3 className="text-xl font-bold mb-2 text-green-300">Ваши данные защищены</h3>
+          <h3 className="text-xl font-bold mb-2 text-green-300">{t("privacy.dataProtected")}</h3>
           <p className="text-gray-400">
-            Мы соблюдаем все современные стандарты безопасности и конфиденциальности
+            {t("privacy.dataProtectedDesc")}
           </p>
         </motion.div>
       </main>

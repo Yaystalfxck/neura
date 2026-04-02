@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface TradingViewWidgetProps {
   symbol: string;
@@ -8,13 +8,14 @@ interface TradingViewWidgetProps {
   height?: number;
 }
 
-export default function TradingViewWidget({ 
-  symbol, 
-  interval = '15', 
-  height = 500 
+export default function TradingViewWidget({
+  symbol,
+  interval = '15',
+  height = 500
 }: TradingViewWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<any>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     // Очищаем предыдущий виджет
@@ -26,11 +27,12 @@ export default function TradingViewWidget({
     // Создаем новый виджет
     if (containerRef.current && !widgetRef.current) {
       const cleanSymbol = symbol.replace('FX:', '').replace('FX_IDC:', '');
-      
+
       const script = document.createElement('script');
       script.src = 'https://s3.tradingview.com/tv.js';
       script.async = true;
       script.onload = () => {
+        setIsLoaded(true);
         if (window.TradingView && containerRef.current) {
           // @ts-ignore
           widgetRef.current = new window.TradingView.widget({
@@ -60,7 +62,11 @@ export default function TradingViewWidget({
           });
         }
       };
-      
+      script.onerror = () => {
+        setIsLoaded(false);
+        console.error('Failed to load TradingView script');
+      };
+
       document.head.appendChild(script);
     }
 
@@ -75,15 +81,15 @@ export default function TradingViewWidget({
 
   return (
     <div className="tradingview-widget-container relative">
-      <div 
+      <div
         id={`tradingview_${symbol}_${Date.now()}`}
-        ref={containerRef} 
+        ref={containerRef}
         style={{ height: `${height}px` }}
         className="rounded-xl overflow-hidden border border-gray-700"
       />
-      
+
       {/* Заглушка если TradingView не загрузился */}
-      {!window.TradingView && (
+      {!isLoaded && (
         <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
           <div className="text-center p-8">
             <div className="text-4xl mb-4">📈</div>

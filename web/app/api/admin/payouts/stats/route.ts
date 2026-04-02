@@ -1,69 +1,51 @@
-import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/database'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
 
-export async function GET() {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('neura-session')?.value
-    const userEmail = cookieStore.get('user-email')?.value
+    const cookieStore = await request.cookies
+    const authToken = cookieStore.get('auth-token')?.value
 
-    if (!sessionToken || !userEmail) {
+    if (!authToken) {
       return NextResponse.json(
         { success: false, error: 'Не авторизован' },
         { status: 401 }
       )
     }
 
-    const db = await getDb()
-    
-    // Проверяем админа
-    const admin = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT role FROM users WHERE email = ?',
-        [userEmail],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
+    const backendUrl = `${API_URL}/api/admin/payouts/stats`
+
+    const response = await fetch(backendUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
     })
 
-    if (!admin || (admin as any).role !== 'admin') {
-      return NextResponse.json(
-        { success: false, error: 'Доступ запрещен' },
-        { status: 403 }
-      )
+    const data = await response.json()
+
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status })
     }
 
-    // Получаем статистику выплат
-    const stats = await new Promise((resolve, reject) => {
-      db.get(`
-        SELECT 
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as totalPending,
-          COUNT(CASE WHEN status = 'processing' THEN 1 END) as totalProcessing,
-          COUNT(CASE WHEN status = 'completed' THEN 1 END) as totalCompleted,
-          COUNT(CASE WHEN status = 'failed' THEN 1 END) as totalFailed,
-          COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as totalCancelled,
-          COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pendingAmount,
-          COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as completedAmount
-        FROM partner_payouts
-      `, (err, row) => {
-        if (err) {
-          console.error('❌ Error getting payout stats:', err)
-          reject(err)
-        } else {
-          resolve(row)
-        }
-      })
-    })
+    // Преобразуем формат backend в формат frontend
+    const transformedData = {
+      success: data.success || true,
+      stats: {
+        totalPending: data.stats?.pending_count || 0,
+        totalProcessing: data.stats?.processing_count || 0,
+        totalCompleted: data.stats?.completed_count || 0,
+        totalAmount: (data.stats?.pending_amount || 0) + (data.stats?.completed_amount || 0),
+        pendingAmount: data.stats?.pending_amount || 0,
+        completedAmount: data.stats?.completed_amount || 0
+      }
+    }
 
-    return NextResponse.json({
-      success: true,
-      stats: stats
-    })
+    return NextResponse.json(transformedData)
+
   } catch (error) {
-    console.error('❌ Error in /api/admin/payouts/stats:', error)
+    console.error('❌ Admin payouts stats API error:', error)
     return NextResponse.json(
       { success: false, error: 'Внутренняя ошибка сервера' },
       { status: 500 }

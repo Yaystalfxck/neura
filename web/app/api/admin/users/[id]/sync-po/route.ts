@@ -1,58 +1,50 @@
-import { NextResponse } from 'next/server'
-import { getDb, syncUserBalance } from '@/lib/database'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('neura-session')?.value
-    const userEmail = cookieStore.get('user-email')?.value
+    const cookieStore = await request.cookies
+    const authToken = cookieStore.get('auth-token')?.value
 
-    if (!sessionToken || !userEmail) {
+    if (!authToken) {
       return NextResponse.json(
         { success: false, error: 'Не авторизован' },
         { status: 401 }
       )
     }
 
+    const { id } = await params
+    const userId = parseInt(id)
+
     const { pocketOptionId } = await request.json()
 
-    const db = await getDb()
-    
-    // Проверяем админа
-    const admin = await new Promise((resolve, reject) => {
-      db.get(
-        'SELECT role FROM users WHERE email = ?',
-        [userEmail],
-        (err, row) => {
-          if (err) reject(err)
-          else resolve(row)
-        }
-      )
+    console.log(`🔄 Sync PO data for user ${userId}, PO ID: ${pocketOptionId}`)
+
+    const response = await fetch(`${API_URL}/api/admin/users/${userId}/sync-po`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ pocketOptionId }),
     })
 
-    if (!admin || (admin as any).role !== 'admin') {
-      return NextResponse.json(
-        { success: false, error: 'Доступ запрещен' },
-        { status: 403 }
-      )
+    const data = await response.json()
+
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status })
     }
 
-    const userId = parseInt(params.id)
+    console.log(`✅ PO sync result:`, data)
 
-    // Синхронизируем данные
-    const updatedUser = await syncUserBalance(userId, pocketOptionId)
+    return NextResponse.json(data)
 
-    return NextResponse.json({
-      success: true,
-      user: updatedUser,
-      message: 'Данные успешно синхронизированы'
-    })
   } catch (error) {
-    console.error('Error in POST /api/admin/users/[id]/sync-po:', error)
+    console.error('❌ Error in sync-po route:', error)
     return NextResponse.json(
       { success: false, error: 'Ошибка синхронизации данных' },
       { status: 500 }

@@ -36,6 +36,9 @@ import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/contexts/AuthContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { AdminNav } from "@/components/admin/AdminNav";
+import { MobileAdminHeader, MobileSidebar } from "@/components/admin/MobileAdminHeader";
+import { Menu, X } from "lucide-react";
 
 interface Payout {
   id: number;
@@ -95,6 +98,7 @@ function AdminPayoutsContent() {
   const [itemsPerPage] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [darkMode, setDarkMode] = useState(true);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Загрузка выплат
   useEffect(() => {
@@ -115,17 +119,27 @@ function AdminPayoutsContent() {
       const response = await fetch(`/api/admin/payouts?${params}`, {
         credentials: 'include'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
+        if (data.success && data.payouts && data.pagination) {
           setPayouts(data.payouts);
           setStats(data.stats);
           setTotalPages(data.pagination.totalPages);
+        } else {
+          console.error('API returned error:', data);
+          setPayouts([]);
+          setTotalPages(0);
         }
+      } else {
+        console.error('API response not ok:', response.status);
+        setPayouts([]);
+        setTotalPages(0);
       }
     } catch (error) {
       console.error('Error loading payouts:', error);
+      setPayouts([]);
+      setTotalPages(0);
     } finally {
       setIsLoading(false);
     }
@@ -149,7 +163,7 @@ function AdminPayoutsContent() {
     if (!confirm(`Вы уверены, что хотите изменить статус на "${getStatusText(newStatus)}"?`)) {
       return;
     }
-    
+
     try {
       const response = await fetch(`/api/admin/payouts/${payoutId}/status`, {
         method: 'PUT',
@@ -157,19 +171,35 @@ function AdminPayoutsContent() {
         body: JSON.stringify({ status: newStatus }),
         credentials: 'include'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          loadPayouts();
+          console.log(`✅ Статус выплаты обновлен на: ${newStatus}`)
+          // Обновляем данные
+          await loadPayouts();
           if (selectedPayout?.id === payoutId) {
             setSelectedPayout(null);
             setShowPayoutModal(false);
           }
+          // Показываем уведомление
+          alert(`Статус выплаты изменен на "${getStatusText(newStatus)}"`)
+          // Перезагружаем страницу через 1 секунду для обновления статистики
+          setTimeout(() => {
+            window.location.reload()
+          }, 1000)
+        } else {
+          console.error('❌ Ошибка обновления статуса:', data)
+          alert(data.error || 'Ошибка обновления статуса')
         }
+      } else {
+        const errorData = await response.json()
+        console.error('❌ HTTP error:', response.status, errorData)
+        alert(errorData.error || 'Ошибка обновления статуса')
       }
     } catch (error) {
       console.error('Error updating payout status:', error);
+      alert('Ошибка обновления статуса')
     }
   };
 
@@ -190,11 +220,18 @@ function AdminPayoutsContent() {
 
   const getMethodText = (method: string) => {
     switch(method) {
-      case 'bank': return 'Банковский перевод';
-      case 'crypto': return 'Криптовалюта (USDT)';
-      case 'card': return 'Банковская карта';
-      case 'pocketoption': return 'PocketOption';
-      default: return method;
+      case 'bank': 
+      case 'bank_transfer':
+        return 'Банковский перевод';
+      case 'crypto': 
+        return 'Криптовалюта (USDT TRC20)';
+      case 'card': 
+        return 'Банковская карта';
+      case 'pocketoption': 
+      case 'pocket_option':
+        return 'PocketOption';
+      default: 
+        return method;
     }
   };
 
@@ -269,9 +306,23 @@ function AdminPayoutsContent() {
 
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gradient-to-b from-black via-gray-900 to-black text-white' : 'bg-gray-50 text-gray-900'}`}>
-      {/* Sidebar (такой же как в админке пользователей) */}
-      <div className={`fixed left-0 top-0 h-full w-64 ${darkMode ? 'bg-gray-900/90 border-gray-800' : 'bg-white border-gray-200'} border-r backdrop-blur-xl z-30`}>
-        <div className="p-6">
+      {/* Mobile Header */}
+      <MobileAdminHeader
+        userRole={user?.role}
+        showMenu={showMobileMenu}
+        setShowMenu={setShowMobileMenu}
+      />
+      
+      {/* Mobile Sidebar */}
+      <MobileSidebar
+        userRole={user?.role}
+        showMenu={showMobileMenu}
+        setShowMenu={setShowMobileMenu}
+      />
+
+      {/* Desktop Sidebar */}
+      <div className={`hidden lg:block fixed left-0 top-0 h-full w-64 ${darkMode ? 'bg-gray-900/90 border-gray-800' : 'bg-white border-gray-200'} border-r backdrop-blur-xl z-30`}>
+        <div className="p-6 pt-6">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
               <Shield className="w-5 h-5 text-white" />
@@ -281,78 +332,24 @@ function AdminPayoutsContent() {
               <p className="text-xs text-gray-500">v1.0.0</p>
             </div>
           </div>
-          
-          <nav className="space-y-2">
-            <button 
-              onClick={() => router.push('/admin/users')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-              }`}
-            >
-              <Users className="w-5 h-5" />
-              <span>Пользователи</span>
-            </button>
-            <button className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-              darkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white'
-            }`}>
-              <Wallet className="w-5 h-5" />
-              <span>Выплаты</span>
-              {stats.totalPending > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                  {stats.totalPending}
-                </span>
-              )}
-            </button>
-            <button className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-              darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-            }`}>
-              <BarChart3 className="w-5 h-5" />
-              <span>Статистика</span>
-            </button>
-            <button className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-              darkMode ? 'hover:bg-gray-800 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600'
-            }`}>
-              <Settings className="w-5 h-5" />
-              <span>Настройки</span>
-            </button>
-          </nav>
-        </div>
-        
-        <div className="absolute bottom-0 left-0 right-0 p-6">
-          <button 
-            onClick={() => setDarkMode(!darkMode)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 ${
-              darkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600'
-            }`}
-          >
-            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            <span>{darkMode ? 'Светлая тема' : 'Темная тема'}</span>
-          </button>
-          <button 
-            onClick={logout}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl ${
-              darkMode ? 'hover:bg-red-500/10 text-red-400 hover:text-red-300' : 'hover:bg-red-50 text-red-600'
-            }`}
-          >
-            <LogOut className="w-5 h-5" />
-            <span>Выйти</span>
-          </button>
+
+          <AdminNav userRole={user?.role} darkMode={darkMode} onNavigate={() => setShowMobileMenu(false)} />
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="ml-64 p-8">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+      <div className="lg:ml-64 p-4 md:p-6 lg:p-8 pt-16 lg:pt-8">
+        {/* Header - показан только на desktop */}
+        <div className="hidden lg:flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
               Управление выплатами
             </h1>
             <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
-              Всего заявок: {stats.totalPending + stats.totalProcessing + stats.totalCompleted}
+              Всего заявок: {(stats?.totalPending || 0) + (stats?.totalProcessing || 0) + (stats?.totalCompleted || 0)}
             </p>
           </div>
-          
+
           <div className="flex items-center gap-3">
             <Button
               onClick={handleRefresh}
@@ -373,47 +370,47 @@ function AdminPayoutsContent() {
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        {/* Stats Cards - адаптировано для мобильных */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-6">
           <div className={`${darkMode ? 'bg-gray-900/50 border-gray-800' : 'bg-white border-gray-200'} border rounded-2xl p-6`}>
             <div className="flex items-center justify-between mb-2">
               <Clock className="w-5 h-5 text-yellow-400" />
-              <span className="text-sm text-yellow-400">{stats.totalPending}</span>
+              <span className="text-sm text-yellow-400">{stats?.totalPending || 0}</span>
             </div>
-            <div className="text-2xl font-bold mb-1">{stats.totalPending}</div>
+            <div className="text-2xl font-bold mb-1">{stats?.totalPending || 0}</div>
             <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Ожидают обработки</div>
             <div className="text-xs text-yellow-400 mt-2">
-              Сумма: ${stats.pendingAmount.toFixed(2)}
+              Сумма: ${(stats?.pendingAmount || 0).toFixed(2)}
             </div>
           </div>
 
           <div className={`${darkMode ? 'bg-gray-900/50 border-gray-800' : 'bg-white border-gray-200'} border rounded-2xl p-6`}>
             <div className="flex items-center justify-between mb-2">
               <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />
-              <span className="text-sm text-blue-400">{stats.totalProcessing}</span>
+              <span className="text-sm text-blue-400">{stats?.totalProcessing || 0}</span>
             </div>
-            <div className="text-2xl font-bold mb-1">{stats.totalProcessing}</div>
+            <div className="text-2xl font-bold mb-1">{stats?.totalProcessing || 0}</div>
             <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>В обработке</div>
           </div>
 
           <div className={`${darkMode ? 'bg-gray-900/50 border-gray-800' : 'bg-white border-gray-200'} border rounded-2xl p-6`}>
             <div className="flex items-center justify-between mb-2">
               <CheckCircle className="w-5 h-5 text-green-400" />
-              <span className="text-sm text-green-400">{stats.totalCompleted}</span>
+              <span className="text-sm text-green-400">{stats?.totalCompleted || 0}</span>
             </div>
-            <div className="text-2xl font-bold mb-1">{stats.totalCompleted}</div>
+            <div className="text-2xl font-bold mb-1">{stats?.totalCompleted || 0}</div>
             <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Выплачено всего</div>
             <div className="text-xs text-green-400 mt-2">
-              Сумма: ${stats.completedAmount.toFixed(2)}
+              Сумма: ${(stats?.completedAmount || 0).toFixed(2)}
             </div>
           </div>
 
           <div className={`${darkMode ? 'bg-gray-900/50 border-gray-800' : 'bg-white border-gray-200'} border rounded-2xl p-6`}>
             <div className="flex items-center justify-between mb-2">
               <DollarSign className="w-5 h-5 text-purple-400" />
-              <span className="text-sm text-purple-400">${stats.totalAmount.toFixed(2)}</span>
+              <span className="text-sm text-purple-400">${(stats?.totalAmount || 0).toFixed(2)}</span>
             </div>
-            <div className="text-2xl font-bold mb-1">${stats.totalAmount.toFixed(2)}</div>
+            <div className="text-2xl font-bold mb-1">${(stats?.totalAmount || 0).toFixed(2)}</div>
             <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Общая сумма выплат</div>
           </div>
         </div>
@@ -706,9 +703,13 @@ function AdminPayoutsContent() {
                   </div>
                   
                   {/* Реквизиты для выплаты */}
-                  <div className="mt-4 p-3 bg-gray-900/50 rounded-lg">
+                  <div className="mt-4">
                     <div className="flex justify-between items-start mb-2">
-                      <span className="text-sm text-gray-400">Реквизиты:</span>
+                      <span className="text-sm font-medium text-gray-400">
+                        {selectedPayout.method === 'crypto' ? 'Адрес кошелька (USDT TRC20):' : 
+                         selectedPayout.method === 'bank_transfer' ? 'Банковские реквизиты:' :
+                         'Реквизиты:'}
+                      </span>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -718,9 +719,26 @@ function AdminPayoutsContent() {
                         <Copy className="w-4 h-4" />
                       </Button>
                     </div>
-                    <p className="font-mono text-sm break-all bg-gray-800 p-2 rounded">
-                      {selectedPayout.details}
+                    <p className={`font-mono text-sm break-all p-3 rounded-lg ${
+                      selectedPayout.method === 'crypto' 
+                        ? 'bg-green-900/20 border border-green-500/30 text-green-400' 
+                        : 'bg-gray-800 text-gray-300'
+                    }`}>
+                      {selectedPayout.details || 'Не указаны'}
                     </p>
+                    {selectedPayout.method === 'crypto' && selectedPayout.details && (
+                      <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3" />
+                        <a 
+                          href={`https://tronscan.org/#/address/${selectedPayout.details}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:underline"
+                        >
+                          Посмотреть в TronScan
+                        </a>
+                      </p>
+                    )}
                   </div>
 
                   {selectedPayout.processed_at && (

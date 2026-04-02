@@ -1,19 +1,49 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Zap, Shield, Headphones, BarChart3, Smartphone, Bell, Lock, CreditCard, MessageCircle, ArrowRight, TrendingUp, Users, Target, Activity, DollarSign, Award, TrendingDown } from "lucide-react";
+import { Zap, Shield, Headphones, BarChart3, Smartphone, Bell, ArrowRight, TrendingUp, Users, Target, Activity, Award, TrendingDown, Lock, CreditCard, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { useInView } from "framer-motion";
 import { useRef } from "react";
 import { LoginDialog } from "@/components/modals/LoginDialog";
 import { RegisterDialog } from "@/components/modals/RegisterDialog";
 import { useAuth } from "@/app/contexts/AuthContext";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 export default function Home() {
   const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
   const [isRegisterDialogOpen, setIsRegisterDialogOpen] = useState(false);
-  
+
   const { user, isAuthenticated } = useAuth();
+  const { t } = useLanguage();
+
+  const faqItems = [
+    {
+      question: t("faq.q1"),
+      answer: t("faq.a1"),
+      icon: <Zap className="w-6 h-6 text-blue-400" />
+    },
+    {
+      question: t("faq.q2"),
+      answer: t("faq.a2"),
+      icon: <Lock className="w-6 h-6 text-green-400" />
+    },
+    {
+      question: t("faq.q3"),
+      answer: t("faq.a3"),
+      icon: <Headphones className="w-6 h-6 text-purple-400" />
+    },
+    {
+      question: t("faq.q4"),
+      answer: t("faq.a4"),
+      icon: <CreditCard className="w-6 h-6 text-yellow-400" />
+    },
+    {
+      question: t("faq.q5"),
+      answer: t("faq.a5"),
+      icon: <MessageCircle className="w-6 h-6 text-cyan-400" />
+    }
+  ];
 
   // Статистика с автоматическим обновлением
   const [stats, setStats] = useState({
@@ -122,10 +152,10 @@ export default function Home() {
               className="space-y-2"
             >
               <p className="text-xl md:text-2xl lg:text-3xl text-gray-300 font-light">
-                Точные сигналы. Умные алгоритмы.
+                {t("home.heroSubtitle1")}
               </p>
               <p className="text-xl md:text-2xl lg:text-3xl text-gray-300 font-light">
-                Реальные возможности.
+                {t("home.heroSubtitle2")}
               </p>
             </motion.div>
           </div>
@@ -139,22 +169,22 @@ export default function Home() {
               className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-24"
             >
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button 
-                  size="lg" 
+                <Button
+                  size="lg"
                   onClick={handleOpenRegister}
                   className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-10 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/30"
                 >
-                  Регистрация <ArrowRight className="ml-2" />
+                  {t("header.register")} <ArrowRight className="ml-2" />
                 </Button>
               </motion.div>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button 
-                  size="lg" 
-                  variant="outline" 
+                <Button
+                  size="lg"
+                  variant="outline"
                   onClick={handleOpenLogin}
                   className="border-2 border-white/50 hover:border-white hover:bg-white/10 text-white px-10 py-6 text-lg rounded-xl font-semibold transition-all backdrop-blur-sm"
                 >
-                  Авторизация
+                  {t("header.login")}
                 </Button>
               </motion.div>
             </motion.div>
@@ -170,13 +200,13 @@ export default function Home() {
             className="bg-black/40 backdrop-blur-sm border border-white/10 rounded-2xl p-8 md:p-12 max-w-4xl mx-auto shadow-xl"
           >
             <div className="flex justify-between items-center mb-6">
-              <motion.h2 
+              <motion.h2
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.5, delay: 0.8 }}
                 className="text-2xl md:text-3xl font-bold text-gray-200"
               >
-                Статистика платформы
+                {t("home.platformStats")}
               </motion.h2>
               
               {/* Индикатор обновления */}
@@ -189,7 +219,7 @@ export default function Home() {
                 className="flex items-center gap-2 text-sm text-blue-400"
               >
                 <Activity className="w-4 h-4" />
-                <span>Обновление каждые 24ч</span>
+                <span>{t("home.updateEvery24h")}</span>
               </motion.div>
             </div>
             
@@ -208,11 +238,11 @@ export default function Home() {
                   {formatNumber(stats.users)}
                 </div>
                 <div className="text-gray-300 text-lg mb-2">
-                  Пользователей сервиса
+                  {t("home.users")}
                 </div>
                 <div className="flex items-center justify-center gap-2 text-sm">
                   <TrendingUp className="w-4 h-4 text-green-400" />
-                  <span className="text-green-400">+{stats.dailyGrowth}% за сутки</span>
+                  <span className="text-green-400">+{stats.dailyGrowth}% {t("home.dailyGrowth").toLowerCase()}</span>
                 </div>
               </motion.div>
 
@@ -229,11 +259,11 @@ export default function Home() {
                   {formatNumber(stats.successfulSignals)}
                 </div>
                 <div className="text-gray-300 text-lg mb-2">
-                  Успешных сигналов
+                  {t("home.successfulSignals")}
                 </div>
                 <div className="flex items-center justify-center gap-2 text-sm">
                   <Award className="w-4 h-4 text-yellow-400" />
-                  <span className="text-yellow-400">Точность {stats.accuracy}%</span>
+                  <span className="text-yellow-400">{t("home.accuracy")} {stats.accuracy}%</span>
                 </div>
               </motion.div>
 
@@ -250,11 +280,11 @@ export default function Home() {
                   {formatNumber(stats.failedSignals)}
                 </div>
                 <div className="text-gray-300 text-lg mb-2">
-                  Неудачных сигналов
+                  {t("home.failedSignals")}
                 </div>
                 <div className="flex items-center justify-center gap-2 text-sm">
                   <TrendingDown className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-400">Всего: {formatNumber(stats.totalSignals)}</span>
+                  <span className="text-gray-400">{t("home.totalSignals")}: {formatNumber(stats.totalSignals)}</span>
                 </div>
               </motion.div>
             </div>
@@ -268,43 +298,43 @@ export default function Home() {
             >
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
-                  <p className="text-gray-400 text-sm mb-1">Рост за неделю</p>
+                  <p className="text-gray-400 text-sm mb-1">{t("home.weeklyGrowth")}</p>
                   <p className="text-2xl font-bold text-green-400">+{stats.weeklyGrowth}%</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-gray-400 text-sm mb-1">Рост за месяц</p>
+                  <p className="text-gray-400 text-sm mb-1">{t("home.monthlyGrowth")}</p>
                   <p className="text-2xl font-bold text-green-400">+{stats.monthlyGrowth}%</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-gray-400 text-sm mb-1">Соотношение успеха</p>
+                  <p className="text-gray-400 text-sm mb-1">{t("home.accuracy")}</p>
                   <p className="text-2xl font-bold text-blue-400">{stats.accuracy}%</p>
                 </div>
               </div>
               
-              <motion.p 
+              <motion.p
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.5, delay: 1.3 }}
                 className="text-sm text-gray-500 mt-4 text-center"
               >
-                Данные обновляются автоматически каждые 24 часа • {new Date().toLocaleDateString('ru-RU')}
+                {t("home.dataUpdatedAutomatically")} • {new Date().toLocaleDateString('en-US')}
               </motion.p>
             </motion.div>
           </motion.div>
 
           {/* Дополнительный декоративный элемент */}
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 1.5 }}
             className="mt-24 text-center"
           >
-            <motion.p 
+            <motion.p
               animate={{ y: [0, -5, 0] }}
               transition={{ repeat: Infinity, duration: 2 }}
               className="text-gray-500 text-sm"
             >
-              ↓ Присоединяйтесь к сообществу инвесторов будущего ↓
+              {t("home.joinCommunity")}
             </motion.p>
           </motion.div>
         </div>
@@ -314,14 +344,14 @@ export default function Home() {
       {/* Что такое Neura? */}
       <AnimatedSection>
         <div className="container mx-auto max-w-4xl">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-3xl md:text-4xl font-bold text-center mb-10"
           >
-            Что такое <span className="text-blue-400">Neura</span>?
+            {t("home.whatIsNeura").replace("Neura", "Neura")}
           </motion.h2>
           
           <motion.div 
@@ -331,16 +361,14 @@ export default function Home() {
             viewport={{ once: true }}
             className="bg-black/40 backdrop-blur-sm border border-white/10 rounded-2xl p-8 md:p-12 hover:shadow-xl hover:shadow-blue-500/10 transition-shadow"
           >
-            <motion.p 
+            <motion.p
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.2 }}
               viewport={{ once: true }}
               className="text-lg md:text-xl text-gray-300 leading-relaxed text-center"
             >
-              Мы создали профессиональный инструмент, где искусственный интеллект обрабатывает огромные массивы данных, 
-              выявляя высоковероятные точки входа и выхода на рынке. Получайте чёткие сигналы, 
-              принимайте взвешенные решения и опережайте тренд с помощью передовых технологий.
+              {t("home.whatIsNeuraDesc")}
             </motion.p>
           </motion.div>
 
@@ -356,21 +384,21 @@ export default function Home() {
           </motion.div>
 
           {/* Почему выбирают нас? */}
-          <motion.h3 
+          <motion.h3
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-2xl md:text-3xl font-bold text-center mb-12"
           >
-            Почему выбирают <span className="text-blue-400">нас</span>?
+            {t("home.whyChooseUs")}
           </motion.h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { icon: Zap, title: "Скорость", desc: "Мгновенные сигналы без задержек, чтобы вы действовали первыми", color: "blue" },
-              { icon: Shield, title: "Надёжность", desc: "Проверенные алгоритмы с точностью до 74.2%", color: "green" },
-              { icon: Headphones, title: "Поддержка", desc: "Круглосуточная поддержка 24/7 через Telegram", color: "purple" },
+              { icon: Zap, title: t("features.speed"), desc: t("features.speedDesc"), color: "blue" },
+              { icon: Shield, title: t("features.reliability"), desc: t("features.reliabilityDesc"), color: "green" },
+              { icon: Headphones, title: t("features.support"), desc: t("features.supportDesc"), color: "purple" },
             ].map((item, index) => (
               <motion.div
                 key={item.title}
@@ -399,30 +427,30 @@ export default function Home() {
       {/* Как начать? */}
       <section className="py-20 px-4 bg-gradient-to-b from-transparent to-gray-900/30">
         <div className="container mx-auto max-w-6xl">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-3xl md:text-4xl font-bold text-center mb-4"
           >
-            КАК <span className="text-blue-400">НАЧАТЬ</span>?
+            {t("home.howToStart")}
           </motion.h2>
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             viewport={{ once: true }}
             className="text-xl text-gray-400 text-center mb-12"
           >
-            Три простых шага
+            {t("home.threeSimpleSteps")}
           </motion.p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20">
             {[
-              { number: "1", title: "Зарегистрируйтесь", desc: "Создайте аккаунт за 2 минуты" },
-              { number: "2", title: "Пополните счёт", desc: "Минимальный депозит от $10" },
-              { number: "3", title: "Получайте сигналы", desc: "Начинайте зарабатывать" },
+              { number: "1", title: t("home.step1"), desc: t("home.step1Desc") },
+              { number: "2", title: t("home.step2"), desc: t("home.step2Desc") },
+              { number: "3", title: t("home.step3"), desc: t("home.step3Desc") },
             ].map((step, index) => (
               <motion.div
                 key={step.number}
@@ -466,17 +494,17 @@ export default function Home() {
 
           {/* Инструменты для трейдера */}
           <div className="max-w-4xl mx-auto">
-            <motion.h3 
+            <motion.h3
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
               viewport={{ once: true }}
               className="text-2xl md:text-3xl font-bold text-center mb-12"
             >
-              Профессиональные инструменты под рукой
+              {t("home.professionalTools")}
             </motion.h3>
 
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
@@ -490,16 +518,16 @@ export default function Home() {
                 >
                   <BarChart3 className="w-8 h-8 text-blue-400" />
                 </motion.div>
-                <h4 className="text-xl font-bold">Интерактивные графики</h4>
+                <h4 className="text-xl font-bold">{t("home.interactiveCharts")}</h4>
               </div>
               <p className="text-gray-300 mb-6">
-                Детальный технический анализ с множеством индикаторов, настройкой таймфреймов и инструментами для рисования.
+                {t("home.interactiveChartsDesc")}
               </p>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
                 {[
-                  { icon: Smartphone, title: "Мобильное приложение", desc: "Полный доступ к платформе с телефона: сигналы, управление сделками, новости, чат — всё в одном месте.", color: "green" },
-                  { icon: Bell, title: "Сигнальные индикаторы", desc: "Мгновенный доступ к аналитике, оповещения о точках входа и выхода, настройка сигналов под ваши цели.", color: "yellow" },
+                  { icon: Smartphone, title: t("home.mobileApp"), desc: t("home.mobileAppDesc"), color: "green" },
+                  { icon: Bell, title: t("home.signalIndicators"), desc: t("home.signalIndicatorsDesc"), color: "yellow" },
                 ].map((tool, index) => (
                   <motion.div
                     key={tool.title}
@@ -528,14 +556,14 @@ export default function Home() {
       {/* FAQ */}
       <AnimatedSection>
         <div className="container mx-auto max-w-4xl">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-3xl md:text-4xl font-bold text-center mb-12"
           >
-            Часто задаваемые вопросы
+            {t("home.faq")}
           </motion.h2>
 
           <div className="space-y-6">
@@ -615,39 +643,38 @@ export default function Home() {
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
             />
 
-            <motion.h2 
+            <motion.h2
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
               viewport={{ once: true }}
               className="text-3xl md:text-4xl font-bold mb-6 relative z-10"
             >
-              Присоединяйтесь к профессионалам!
+              {t("home.joinProfessionals")}
             </motion.h2>
-            <motion.p 
+            <motion.p
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.2 }}
               viewport={{ once: true }}
               className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto relative z-10"
             >
-              Откройте для себя новые горизонты в трейдинге. Ваш успех начинается здесь. 
-              Не упустите возможность зарабатывать больше с помощью нашей платформы!
+              {t("home.joinProfessionalsDesc")}
             </motion.p>
-            
+
             {/* Кнопка в футере */}
             {!isAuthenticated && !user && (
-              <motion.div 
+              <motion.div
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className="relative z-10"
               >
-                <Button 
-                  size="lg" 
+                <Button
+                  size="lg"
                   onClick={handleOpenRegister}
                   className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-12 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/30"
                 >
-                  Начать сейчас
+                  {t("home.startNow")}
                 </Button>
               </motion.div>
             )}
@@ -705,31 +732,3 @@ function AnimatedSection({ children }: { children: React.ReactNode }) {
     </motion.section>
   );
 }
-
-const faqItems = [
-  {
-    question: "Как быстро я увижу первые результаты?",
-    answer: "Результаты зависят от вашей активности и соблюдения рекомендаций по сигналам. Многие пользователи замечают первые положительные изменения уже в первые дни при стабильной торговле и дисциплине.",
-    icon: <Zap className="w-6 h-6 text-blue-400" />
-  },
-  {
-    question: "Насколько безопасны мои данные?",
-    answer: "Безопасность – наш приоритет. Мы используем современное шифрование и защищённые серверы. Ваши личные данные не передаются третьим лицам и используются только для обеспечения работы сервиса.",
-    icon: <Lock className="w-6 h-6 text-green-400" />
-  },
-  {
-    question: "Есть ли поддержка?",
-    answer: "Да, наша команда поддержки работает 24/7. Вы можете связаться с нами в любое время через Telegram и мы поможем вам в любом вопросе.",
-    icon: <Headphones className="w-6 h-6 text-purple-400" />
-  },
-  {
-    question: "Как пополнить баланс?",
-    answer: "Вы можете пополнить баланс напрямую через платформу Pocket Option, используя банковские карты, электронные кошельки или криптовалюту. Мы не храним ваши платежные данные – все операции защищены и проходят через официальные шлюзы брокера.",
-    icon: <CreditCard className="w-6 h-6 text-yellow-400" />
-  },
-  {
-    question: "Как работает система сигналов?",
-    answer: "Для старта торговли зарегистрируйте аккаунт и пополните баланс на стороне платформы Pocket Option. После этого вы готовы к своему первому шагу в трейдинге.",
-    icon: <MessageCircle className="w-6 h-6 text-cyan-400" />
-  }
-];

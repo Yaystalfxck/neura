@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/database'
 import { cookies } from 'next/headers'
 
 export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const cookieStore = await cookies()
@@ -28,13 +28,13 @@ export async function PUT(
     }
 
     const db = await getDb()
-    
+
     // Проверяем админа
     const admin = await new Promise((resolve, reject) => {
       db.get(
         'SELECT role FROM users WHERE email = ?',
         [userEmail],
-        (err, row) => {
+        (err: Error, row: any) => {
           if (err) reject(err)
           else resolve(row)
         }
@@ -48,14 +48,15 @@ export async function PUT(
       )
     }
 
-    const userId = parseInt(params.id)
+    const { id } = await params
+    const userId = parseInt(id)
 
     // Обновляем статус
     await new Promise((resolve, reject) => {
       db.run(
         'UPDATE users SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
         [status, userId],
-        function(err) {
+        function(this: any, err: Error) {
           if (err) reject(err)
           else resolve(this)
         }

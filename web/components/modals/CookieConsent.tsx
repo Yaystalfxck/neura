@@ -4,8 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { X, Cookie } from 'lucide-react';
+import { useLanguage } from '@/app/contexts/LanguageContext';
 
 export default function CookieConsent() {
+  const { t } = useLanguage();
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -55,14 +57,14 @@ export default function CookieConsent() {
         </div>
         <div>
           <h3 className="text-sm font-semibold text-white mb-1">
-            Использование куки
+            {t("cookieConsent.title")}
           </h3>
           <p className="text-xs text-gray-400">
-            Мы используем куки для работы сайта. Продолжая использовать сайт, вы соглашаетесь с их использованием.
+            {t("cookieConsent.description")} <a href="/privacy" className="text-blue-400 hover:underline">{t("cookieConsent.privacyPolicy")}</a>
           </p>
         </div>
       </div>
-      
+
       <div className="flex gap-2">
         <Button
           onClick={() => handleAction('reject')}
@@ -70,23 +72,23 @@ export default function CookieConsent() {
           size="sm"
           className="flex-1 text-xs h-8 border-gray-700 hover:border-gray-600 text-gray-300 hover:text-white"
         >
-          Отклонить
+          {t("cookieConsent.decline")}
         </Button>
         <Button
           onClick={() => handleAction('accept')}
           size="sm"
           className="flex-1 text-xs h-8 bg-blue-600 hover:bg-blue-700"
         >
-          Принять
+          {t("cookieConsent.accept")}
         </Button>
       </div>
-      
+
       <div className="mt-3 text-center">
         <button
           onClick={() => handleAction('hide')}
           className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
         >
-          Не показывать снова
+          {t("common.close")}
         </button>
       </div>
     </motion.div>

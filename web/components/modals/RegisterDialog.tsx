@@ -23,6 +23,7 @@ import {
   ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 interface RegisterDialogProps {
   isOpen: boolean;
@@ -50,6 +51,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
   onClose,
   onSwitchToLogin,
 }) => {
+  const { t } = useLanguage();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -71,7 +73,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
   // Дебаунс для проверки PocketOption ID
   const [checkTimeout, setCheckTimeout] = useState<NodeJS.Timeout | null>(null);
 
-  const pocketOptionLink = "https://pocketoption.com/signup?ref=NEURA54321";
+  const pocketOptionLink = "https://po-ru4.click/register?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1686579&ac=users&cid=923101&code=WELCOME50";
 
   const handleOpenPocketOption = () => {
     window.open(pocketOptionLink, '_blank');
@@ -246,8 +248,8 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
     <form onSubmit={handleBasicRegistration} className="p-6 space-y-4">
       {/* Заголовок */}
       <div className="text-center mb-2">
-        <h3 className="text-lg font-bold text-white">Шаг 1: Создание аккаунта</h3>
-        <p className="text-sm text-gray-400 mt-1">Заполните основные данные</p>
+        <h3 className="text-lg font-bold text-white">{t("register.step1Title")}</h3>
+        <p className="text-sm text-gray-400 mt-1">{t("register.step1Desc")}</p>
       </div>
 
       {/* Показ ошибок */}
@@ -266,7 +268,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
       <div className="space-y-4">
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-300">
-            Имя *
+            {t("register.name")} *
           </label>
           <div className="relative">
             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -275,7 +277,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
               name="name"
               value={formData.name}
               onChange={handleChange}
-              placeholder="Ваше имя"
+              placeholder={t("register.namePlaceholder")}
               required
               disabled={isLoading}
               className="w-full pl-10 pr-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-all disabled:opacity-50"
@@ -285,7 +287,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
 
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-300">
-            Email *
+            {t("register.email")} *
           </label>
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -294,7 +296,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
               name="email"
               value={formData.email}
               onChange={handleChange}
-              placeholder="your@email.com"
+              placeholder={t("register.emailPlaceholder")}
               required
               disabled={isLoading}
               className="w-full pl-10 pr-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-all disabled:opacity-50"
@@ -305,7 +307,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-300">
-              Пароль *
+              {t("register.password")} *
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -337,7 +339,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-300">
-              Подтверждение *
+              {t("register.confirmPassword")} *
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -377,12 +379,12 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
             {formData.password === formData.confirmPassword ? (
               <>
                 <Check className="w-4 h-4 text-green-500" />
-                <span className="text-green-500">Пароли совпадают</span>
+                <span className="text-green-500">{t("register.passwordsMatch")}</span>
               </>
             ) : (
               <>
                 <X className="w-4 h-4 text-red-500" />
-                <span className="text-red-500">Пароли не совпадают</span>
+                <span className="text-red-500">{t("register.passwordsDontMatch")}</span>
               </>
             )}
           </motion.div>
@@ -390,8 +392,8 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
       </div>
 
       <div className="text-xs text-gray-500 space-y-1 pt-2">
-        <p>• Пароль должен содержать минимум 6 символов</p>
-        <p>• Используйте буквы, цифры и специальные символы</p>
+        <p>• {t("register.passwordMin6Chars")}</p>
+        <p>• {t("register.useLettersNumbersSpecial")}</p>
       </div>
 
       <Button
@@ -399,19 +401,19 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
         disabled={isLoading}
         className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Продолжить
+        {t("auth.continue")}
       </Button>
 
       <div className="text-center pt-4 border-t border-gray-800">
         <p className="text-gray-400">
-          Уже есть аккаунт?{" "}
+          {t("auth.hasAccount")}{" "}
           <button
             type="button"
             onClick={onSwitchToLogin}
             className="text-blue-400 hover:text-blue-300 font-medium"
             disabled={isLoading}
           >
-            Войти
+            {t("auth.login")}
           </button>
         </p>
       </div>
@@ -424,8 +426,8 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
       {/* Заголовок */}
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h3 className="text-lg font-bold text-white">Шаг 2: Привязка PocketOption</h3>
-          <p className="text-sm text-gray-400 mt-1">Введите ваш PocketOption ID</p>
+          <h3 className="text-lg font-bold text-white">{t("register.step2Title")}</h3>
+          <p className="text-sm text-gray-400 mt-1">{t("register.step2Desc")}</p>
         </div>
         <button
           type="button"
@@ -433,7 +435,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
           className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-sm"
         >
           <ArrowLeft className="w-4 h-4" />
-          Назад
+          {t("auth.back")}
         </button>
       </div>
 
@@ -448,7 +450,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
           <p className="text-red-400 text-sm">{error}</p>
         </motion.div>
       )}
-      
+
       {/* Показ успеха */}
       {success && (
         <motion.div
@@ -464,7 +466,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
-            PocketOption ID *
+            {t("register.pocketOptionId")} *
             {isCheckingPocketOption && (
               <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></span>
             )}
@@ -475,10 +477,10 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
             className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
           >
             <Info className="w-3 h-3" />
-            {showPocketOptionInfo ? 'Скрыть помощь' : 'Что это?'}
+            {showPocketOptionInfo ? t("register.hideHelp") : t("register.whatsThis")}
           </button>
         </div>
-        
+
         {showPocketOptionInfo && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -487,11 +489,10 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
             className="bg-blue-900/20 border border-blue-800/30 rounded-lg p-3 mb-2 overflow-hidden"
           >
             <p className="text-sm text-blue-300 font-medium mb-1">
-              Что такое PocketOption ID?
+              {t("register.whatsPocketOptionId")}
             </p>
             <p className="text-xs text-gray-400 mb-2">
-              Это ваш уникальный идентификатор в системе Pocket Option.
-              Он необходим для синхронизации аккаунтов и получения данных о балансе.
+              {t("register.pocketOptionIdDesc")}
             </p>
             <Button
               type="button"
@@ -500,11 +501,11 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
               className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-1"
             >
               <ExternalLink className="w-3 h-3 mr-1" />
-              Зарегистрироваться на Pocket Option
+              {t("register.registerOnPocketOption")}
             </Button>
           </motion.div>
         )}
-        
+
         <div className="relative">
           <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
@@ -518,7 +519,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
               }
             }}
             onBlur={(e) => checkPocketOptionId(e.target.value)}
-            placeholder="RO-123456"
+            placeholder={t("register.poIdPlaceholder")}
             required
             disabled={isLoading}
             className="w-full pl-10 pr-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-all disabled:opacity-50"
@@ -535,12 +536,12 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
             </div>
           )}
         </div>
-        
+
         <div className="flex flex-col gap-2">
           <p className="text-xs text-gray-500">
-            • Пример ID: RO-123456, RO-789012
+            {t("register.poIdExample")}
           </p>
-          
+
           <motion.div
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
@@ -553,30 +554,30 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
               className="w-full border-gray-700 hover:border-blue-500 hover:bg-blue-900/20 text-blue-400 hover:text-blue-300 py-2 rounded-lg"
             >
               <ExternalLink className="w-4 h-4 mr-2" />
-              Получить ID на Pocket Option
+              {t("register.getPoId")}
             </Button>
           </motion.div>
-          
+
           <div className="text-xs text-gray-500 bg-gray-900/30 border border-gray-700 rounded-lg p-2">
-            <p className="font-medium text-gray-400 mb-1">Где найти ID:</p>
+            <p className="font-medium text-gray-400 mb-1">{t("register.whereToFindId")}:</p>
             <ol className="list-decimal pl-4 space-y-1">
-              <li>Зарегистрируйтесь на Pocket Option</li>
-              <li>Войдите в аккаунт</li>
-              <li>Нажмите на аватар профиля</li>
-              <li>ID указан в настройках профиля</li>
+              <li>{t("register.step1Find")}</li>
+              <li>{t("register.step2Find")}</li>
+              <li>{t("register.step3Find")}</li>
+              <li>{t("register.step4Find")}</li>
             </ol>
           </div>
         </div>
       </div>
 
       {/* 🔴 Карточка с данными PocketOption */}
-      
+
 
       <div className="text-xs text-gray-500 space-y-1 pt-2">
-        <p className="font-medium text-gray-400">Зачем это нужно?</p>
-        <p>• Для синхронизации с вашим аккаунтом Pocket Option</p>
-        <p>• Для автоматического получения данных о балансе</p>
-        <p>• Для отслеживания депозитов и статуса верификации</p>
+        <p className="font-medium text-gray-400">{t("register.whyNeeded")}</p>
+        <p>• {t("register.reason1")}</p>
+        <p>• {t("register.reason2")}</p>
+        <p>• {t("register.reason3")}</p>
       </div>
 
       <Button
@@ -587,15 +588,15 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
         {isLoading ? (
           <span className="flex items-center justify-center gap-2">
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            Завершение регистрации...
+            {t("register.completing")}
           </span>
         ) : (
-          "Завершить регистрацию"
+          t("register.completeRegistration")
         )}
       </Button>
 
       <div className="text-center text-xs text-gray-500 pt-2">
-        <p>Шаг 2 из 2 • PocketOption ID обязателен для использования платформы</p>
+        <p>{t("register.step2Of2")}</p>
       </div>
     </form>
   );
@@ -626,11 +627,11 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
                   <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm z-10 p-6 border-b border-gray-800">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h2 className="text-2xl font-bold text-white">Регистрация</h2>
+                        <h2 className="text-2xl font-bold text-white">{t("auth.registerTitle")}</h2>
                         <div className="flex items-center gap-2 mt-1">
                           <div className={`w-2 h-2 rounded-full ${currentStep === 'basic' ? 'bg-blue-500' : 'bg-green-500'}`}></div>
                           <p className="text-sm text-gray-400">
-                            {currentStep === 'basic' ? 'Шаг 1: Основные данные' : 'Шаг 2: PocketOption ID'}
+                            {currentStep === 'basic' ? t("register.step1Indicator") : t("register.step2Indicator")}
                           </p>
                         </div>
                       </div>

@@ -16,7 +16,8 @@ import {
   Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/app/contexts/AuthContext"; // Импортируем useAuth
+import { useAuth } from "@/app/contexts/AuthContext";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 interface LoginDialogProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
   onClose,
   onSwitchToRegister,
 }) => {
+  const { t } = useLanguage();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
@@ -67,9 +69,9 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    
+
     if (!formData.email.trim() || !formData.password.trim()) {
-      setError("Заполните все поля");
+      setError(t("auth.fillAllFields"));
       return;
     }
     
@@ -84,20 +86,20 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
         if (result.error?.includes('PocketOption ID')) {
           setError(result.error);
         } else {
-          setError(result.error || 'Неверный email или пароль');
+          setError(t("auth.invalidEmailOrPassword"));
         }
         return;
       }
 
       console.log("✅ Успешный вход через AuthContext!");
-      
+
       // Закрываем диалог
       onClose();
       setFormData({ email: "", password: "" });
 
     } catch (error) {
       console.error('❌ Login error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Неверный email или пароль';
+      const errorMessage = error instanceof Error ? error.message : t("auth.invalidEmailOrPassword");
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -114,7 +116,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
   // 1. Отправка кода на почту
   const handleSendResetCode = async () => {
     if (!resetEmail.trim()) {
-      setResetError("Введите email");
+      setResetError(t("auth.enterEmail"));
       return;
     }
 
@@ -131,22 +133,22 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Ошибка при отправке кода');
+        throw new Error(result.error || t("auth.errorSendingCode"));
       }
 
       console.log(`✅ Код отправлен на ${resetEmail}`);
       setResetStep('code');
-      setCountdown(60); // 60 секунд до возможности повторной отправки
-      setResetSuccess(result.message || 'Код отправлен на email');
-      
+      setCountdown(60);
+      setResetSuccess(t("auth.codeSentToEmail"));
+
       // Показываем код в консоли для теста (только в разработке)
       if (result.code) {
-        console.log('📧 Код для теста:', result.code);
+        console.log(`${t("auth.testCode")}:`, result.code);
       }
-      
+
     } catch (error) {
       console.error('❌ Send code error:', error);
-      setResetError(error instanceof Error ? error.message : 'Ошибка при отправке кода');
+      setResetError(error instanceof Error ? error.message : t("auth.errorSendingCode"));
     } finally {
       setIsLoading(false);
     }
@@ -155,13 +157,13 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
   // 2. Проверка кода
   const handleVerifyCode = async () => {
     if (!resetCode.trim()) {
-      setResetError("Введите код");
+      setResetError(t("auth.enterCode"));
       return;
     }
 
     // Проверяем формат кода
     if (!/^\d{6}$/.test(resetCode)) {
-      setResetError("Код должен состоять из 6 цифр");
+      setResetError(t("auth.codeMustBe6Digits"));
       return;
     }
 
@@ -181,16 +183,16 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Ошибка проверки кода');
+        throw new Error(result.error || t("auth.errorCheckingCode"));
       }
 
       console.log(`✅ Код ${resetCode} принят`);
       setResetStep('new_password');
-      setResetSuccess("Код подтвержден. Введите новый пароль.");
-      
+      setResetSuccess(t("auth.codeVerified"));
+
     } catch (error) {
       console.error('❌ Verify code error:', error);
-      setResetError(error instanceof Error ? error.message : 'Неверный код. Попробуйте еще раз.');
+      setResetError(error instanceof Error ? error.message : t("auth.incorrectCodeTryAgain"));
     } finally {
       setIsLoading(false);
     }
@@ -199,17 +201,17 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
   // 3. Установка нового пароля
   const handleSetNewPassword = async () => {
     if (!newPassword.trim() || !confirmNewPassword.trim()) {
-      setResetError("Заполните все поля");
+      setResetError(t("auth.fillAllFields"));
       return;
     }
 
     if (newPassword.length < 6) {
-      setResetError("Пароль должен содержать минимум 6 символов");
+      setResetError(t("auth.passwordMinLength"));
       return;
     }
 
     if (newPassword !== confirmNewPassword) {
-      setResetError("Пароли не совпадают");
+      setResetError(t("auth.passwordsDontMatch"));
       return;
     }
 
@@ -230,16 +232,16 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Ошибка при смене пароля');
+        throw new Error(result.error || t("auth.errorChangingPassword"));
       }
 
       console.log(`✅ Пароль изменен для ${resetEmail}`);
       setResetStep('success');
-      setResetSuccess("Пароль успешно изменен!");
-      
+      setResetSuccess(t("auth.recoverySuccess"));
+
     } catch (error) {
       console.error('❌ Set new password error:', error);
-      setResetError(error instanceof Error ? error.message : 'Ошибка при смене пароля');
+      setResetError(error instanceof Error ? error.message : t("auth.errorChangingPassword"));
     } finally {
       setIsLoading(false);
     }
@@ -311,10 +313,10 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">
-                  Восстановление пароля
+                  {t("auth.forgotPassword")}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Введите email для отправки кода подтверждения
+                  {t("auth.enterEmailForCode")}
                 </p>
               </div>
             </div>
@@ -348,9 +350,9 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
             </div>
 
             <div className="text-xs text-gray-500">
-              <p>• На email будет отправлен 6-значный код</p>
-              <p>• Код действителен 15 минут</p>
-              <p>• Проверьте папку "Спам", если не видите письмо</p>
+              <p>• {t("auth.codeSentToEmail")}</p>
+              <p>• {t("auth.codeValid15min")}</p>
+              <p>• {t("auth.checkSpamFolder")}</p>
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -360,7 +362,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 variant="outline"
                 className="flex-1 border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 text-white"
               >
-                Отмена
+                {t("auth.cancel")}
               </Button>
               <Button
                 type="button"
@@ -371,10 +373,10 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 {isLoading ? (
                   <>
                     <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                    Отправка...
+                    {t("auth.sending")}
                   </>
                 ) : (
-                  "Отправить код"
+                  t("auth.sendCode")
                 )}
               </Button>
             </div>
@@ -390,10 +392,10 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">
-                  Введите код подтверждения
+                  {t("auth.verificationCode")}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Код отправлен на {resetEmail}
+                  {t("auth.codeSentToEmail")} {resetEmail}
                 </p>
               </div>
             </div>
@@ -412,7 +414,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
 
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-300">
-                6-значный код
+                {t("auth.enterVerificationCode")}
               </label>
               <div className="relative">
                 <input
@@ -425,26 +427,26 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 />
               </div>
               <p className="text-xs text-gray-500 text-center">
-                Введите 6 цифр из письма
+                {t("auth.enter6DigitCode")}
               </p>
             </div>
 
             <div className="flex items-center justify-center gap-2 text-sm">
-              <span className="text-gray-500">Не получили код?</span>
+              <span className="text-gray-500">{t("auth.didNotReceiveCode")}</span>
               <button
                 type="button"
                 onClick={handleResendCode}
                 disabled={countdown > 0 || isLoading}
                 className={`text-blue-400 hover:text-blue-300 ${countdown > 0 || isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                {isLoading ? 'Отправка...' : 
-                 countdown > 0 ? `Отправить повторно (${countdown}с)` : 'Отправить повторно'}
+                {isLoading ? t("auth.resendingCode") :
+                 countdown > 0 ? `${t("auth.resendCodeIn")} (${countdown}с)` : t("auth.resendCode")}
               </button>
             </div>
 
             <div className="text-xs text-gray-500 text-center">
-              <p>• Проверьте папку "Спам"</p>
-              <p>• Код действителен 15 минут</p>
+              <p>• {t("auth.checkSpam")}</p>
+              <p>• {t("auth.codeValid15min")}</p>
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -454,7 +456,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 variant="outline"
                 className="flex-1 border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 text-white"
               >
-                Назад
+                {t("auth.back")}
               </Button>
               <Button
                 type="button"
@@ -465,10 +467,10 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 {isLoading ? (
                   <>
                     <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                    Проверка...
+                    {t("auth.checking")}
                   </>
                 ) : (
-                  "Подтвердить код"
+                  t("auth.verifyCode")
                 )}
               </Button>
             </div>
@@ -484,10 +486,10 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">
-                  Новый пароль
+                  {t("auth.newPasswordLabel")}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Придумайте новый пароль для {resetEmail}
+                  {t("auth.newPasswordFor")} {resetEmail}
                 </p>
               </div>
             </div>
@@ -506,7 +508,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
 
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-300">
-                Новый пароль
+                {t("auth.newPasswordLabel")}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -533,7 +535,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
 
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-300">
-                Подтверждение пароля
+                {t("auth.confirmPasswordLabel")}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -556,18 +558,18 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                   )}
                 </button>
               </div>
-              
+
               {newPassword && confirmNewPassword && (
                 <div className="flex items-center gap-2 text-sm">
                   {newPassword === confirmNewPassword ? (
                     <>
                       <CheckCircle className="w-4 h-4 text-green-500" />
-                      <span className="text-green-500">Пароли совпадают</span>
+                      <span className="text-green-500">{t("auth.passwordsMatchLabel")}</span>
                     </>
                   ) : (
                     <>
                       <AlertCircle className="w-4 h-4 text-red-500" />
-                      <span className="text-red-500">Пароли не совпадают</span>
+                      <span className="text-red-500">{t("auth.passwordsDontMatchLabel")}</span>
                     </>
                   )}
                 </div>
@@ -575,9 +577,9 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
             </div>
 
             <div className="text-xs text-gray-500 space-y-1">
-              <p>• Пароль должен содержать минимум 6 символов</p>
-              <p>• Используйте буквы, цифры и специальные символы</p>
-              <p>• Рекомендуем использовать уникальный пароль</p>
+              <p>• {t("auth.passwordMin6Chars")}</p>
+              <p>• {t("auth.useLettersNumbersSpecial")}</p>
+              <p>• {t("auth.passwordRequirements")}</p>
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -587,7 +589,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 variant="outline"
                 className="flex-1 border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 text-white"
               >
-                Назад
+                {t("auth.back")}
               </Button>
               <Button
                 type="button"
@@ -598,10 +600,10 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 {isLoading ? (
                   <>
                     <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                    Сохранение...
+                    {t("auth.savingPassword")}
                   </>
                 ) : (
-                  "Изменить пароль"
+                  t("auth.savePassword")
                 )}
               </Button>
             </div>
@@ -614,13 +616,13 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
             <div className="mx-auto w-16 h-16 bg-green-900/30 rounded-full flex items-center justify-center">
               <CheckCircle className="w-8 h-8 text-green-500" />
             </div>
-            
+
             <div>
               <h3 className="text-xl font-semibold text-white">
-                Пароль успешно изменен!
+                {t("auth.passwordChangedTitle")}
               </h3>
               <p className="text-sm text-gray-400 mt-2">
-                Теперь вы можете войти в аккаунт с новым паролем
+                {t("auth.passwordChangedDesc")}
               </p>
             </div>
 
@@ -629,7 +631,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 Email: <span className="font-medium">{resetEmail}</span>
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Сохраните новый пароль в надежном месте
+                {t("auth.savePasswordInSafePlace")}
               </p>
             </div>
 
@@ -639,7 +641,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 onClick={handleBackToLogin}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
               >
-                Войти в аккаунт
+                {t("auth.loginNowButton")}
               </Button>
               <Button
                 type="button"
@@ -647,7 +649,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                 variant="outline"
                 className="flex-1 border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 text-white"
               >
-                Закрыть
+                {t("auth.closeDialog")}
               </Button>
             </div>
           </div>
@@ -684,16 +686,16 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                     <div className="flex items-center justify-between">
                       <div>
                         <h2 className="text-2xl font-bold text-white">
-                          {resetStep === 'email' && 'Восстановление пароля'}
-                          {resetStep === 'code' && 'Код подтверждения'}
-                          {resetStep === 'new_password' && 'Новый пароль'}
-                          {resetStep === 'success' && 'Готово!'}
+                          {resetStep === 'email' && t("auth.passwordRecovery")}
+                          {resetStep === 'code' && t("auth.verificationCode")}
+                          {resetStep === 'new_password' && t("auth.newPassword")}
+                          {resetStep === 'success' && t("auth.successTitle")}
                         </h2>
                         <p className="text-sm text-gray-400 mt-1">
-                          {resetStep === 'email' && 'Шаг 1 из 3: Введите email'}
-                          {resetStep === 'code' && 'Шаг 2 из 3: Введите код'}
-                          {resetStep === 'new_password' && 'Шаг 3 из 3: Новый пароль'}
-                          {resetStep === 'success' && 'Пароль успешно изменен'}
+                          {resetStep === 'email' && t("auth.recoveryStep1")}
+                          {resetStep === 'code' && t("auth.recoveryStep2")}
+                          {resetStep === 'new_password' && t("auth.recoveryStep3")}
+                          {resetStep === 'success' && t("auth.recoverySuccess")}
                         </p>
                       </div>
                       <motion.button
@@ -766,9 +768,9 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                         <User className="w-6 h-6 text-blue-400" />
                       </div>
                       <div>
-                        <h2 className="text-2xl font-bold text-white">Вход в аккаунт</h2>
+                        <h2 className="text-2xl font-bold text-white">{t("auth.loginTitle")}</h2>
                         <p className="text-sm text-gray-400 mt-1">
-                          Введите данные для входа
+                          {t("auth.enterCredentials")}
                         </p>
                       </div>
                     </div>
@@ -802,7 +804,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
 
                   <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-300">
-                      Email
+                      {t("auth.email")}
                     </label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -820,7 +822,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
 
                   <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-300">
-                      Пароль
+                      {t("auth.password")}
                     </label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -860,7 +862,7 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                         }
                       }}
                     >
-                      Забыли пароль?
+                      {t("auth.forgotPassword")}
                     </button>
                   </div>
 
@@ -873,30 +875,30 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
                       {isLoading ? (
                         <span className="flex items-center justify-center">
                           <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                          Проверка данных...
+                          {t("auth.checking")}
                         </span>
                       ) : (
-                        "Войти"
+                        t("auth.signIn")
                       )}
                     </Button>
 
                     <div className="text-center text-xs text-gray-500">
                       <div className="flex items-center justify-center gap-1">
                         <Key className="w-3 h-3 text-green-500" />
-                        <p>Требуется PocketOption ID для входа</p>
+                        <p>{t("auth.pocketOptionIdRequired")}</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="text-center pt-4 border-t border-gray-800">
                     <p className="text-gray-400">
-                      Нет аккаунта?{" "}
+                      {t("auth.noAccount")}{" "}
                       <button
                         type="button"
                         onClick={onSwitchToRegister}
                         className="text-blue-400 hover:text-blue-300 font-medium"
                       >
-                        Зарегистрироваться
+                        {t("auth.registerNow")}
                       </button>
                     </p>
                   </div>

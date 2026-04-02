@@ -1,0 +1,69 @@
+from fastapi import APIRouter, HTTPException, status, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from datetime import timedelta
+from app.database import get_db
+from app.models import User
+from app.schemas import LoginSchema, TokenSchema, UserResponse
+from app.utils import verify_password, create_access_token
+from app.config import get_settings
+
+settings = get_settings()
+router = APIRouter(prefix="/api", tags=["Auth"])
+
+
+@router.post("/login", response_model=TokenSchema)
+async def login(
+    login_data: LoginSchema,
+    db: AsyncSession = Depends(get_db)
+):
+    """Вход в систему"""
+    # Найти пользователя
+    result = await db.execute(
+        select(User).where(User.email == login_data.email)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль",
+        )
+
+    # Проверка пароля
+    if not verify_password(login_data.password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль",
+        )
+
+    # Проверка PocketOption ID
+    if not user.pocket_option_id or user.pocket_option_id.strip() == '':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вашего аккаунта не указан PocketOption ID. Обратитесь в поддержку.",
+        )
+
+    # Создание токена
+    access_token = create_access_token(
+        data={"sub": user.email, "user_id": user.id},
+        expires_delta=timedelta(days=settings.ACCESS_TOKEN_EXPIRE_DAYS)
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "pocket_option_id": user.pocket_option_id,
+            "balance": user.balance,
+            "phone": user.phone,
+            "country": user.country,
+            "language": user.language,
+            "status": user.status,
+            "role": user.role,
+            "created_at": user.created_at,
+        }
+    }

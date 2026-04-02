@@ -3,13 +3,13 @@
 
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { 
-  Brain, 
-  Zap, 
-  ChartLine, 
-  Users, 
-  User, 
-  Shield, 
+import {
+  Brain,
+  Zap,
+  ChartLine,
+  Users,
+  User,
+  Shield,
   TrendingUp,
   Target,
   BarChart3,
@@ -27,8 +27,14 @@ import { useInView } from "framer-motion";
 import { useRef } from "react";
 import { LoginDialog } from "@/components/modals/LoginDialog";
 import { RegisterDialog } from "@/components/modals/RegisterDialog";
+import { useLanguage } from "@/app/contexts/LanguageContext";
+import { useAuth } from "@/app/contexts/AuthContext";
+import { useRouter } from "next/navigation";
 
 export default function AboutPage() {
+  const { t } = useLanguage();
+  const { user, isAuthenticated } = useAuth();
+  const router = useRouter();
   const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
   const [isRegisterDialogOpen, setIsRegisterDialogOpen] = useState(false);
 
@@ -37,24 +43,24 @@ export default function AboutPage() {
 
   const teamMembers = [
     {
-      name: "Александр Петров",
-      role: "Главный аналитик",
-      experience: "12 лет опыта в финансовых рынках",
-      description: "Специализируется на алгоритмической торговле и рыночном анализе",
+      name: t("about.member1Name"),
+      role: t("about.member1Role"),
+      experience: t("about.member1Desc"),
+      description: t("about.member1Spec"),
       icon: <BarChart3 className="w-6 h-6" />
     },
     {
-      name: "Мария Смирнова",
-      role: "Lead AI Developer",
-      experience: "Эксперт по машинному обучению",
-      description: "Разрабатывает нейронные сети для прогнозирования рынков",
+      name: t("about.member2Name"),
+      role: t("about.member2Role"),
+      experience: t("about.member2Desc"),
+      description: t("about.member2Spec"),
       icon: <Brain className="w-6 h-6" />
     },
     {
-      name: "Дмитрий Иванов",
-      role: "Финансовый стратег",
-      experience: "Управление рисками",
-      description: "Создаёт стратегии управления капиталом",
+      name: t("about.member3Name"),
+      role: t("about.member3Role"),
+      experience: t("about.member3Desc"),
+      description: t("about.member3Spec"),
       icon: <Shield className="w-6 h-6" />
     }
   ];
@@ -62,29 +68,29 @@ export default function AboutPage() {
   const features = [
     {
       icon: <Brain className="w-10 h-10" />,
-      title: "Искусственный интеллект",
-      description: "Алгоритмы машинного обучения анализируют рыночные данные в реальном времени",
+      title: t("about.feature1Title"),
+      description: t("about.feature1Desc"),
       color: "blue"
     },
     {
       icon: <Zap className="w-10 h-10" />,
-      title: "Мгновенные сигналы",
-      description: "Торговые сигналы при обнаружении прибыльных возможностей",
+      title: t("about.feature2Title"),
+      description: t("about.feature2Desc"),
       color: "purple"
     },
     {
       icon: <ChartLine className="w-10 h-10" />,
-      title: "Автоматизация торговли",
-      description: "Автоматическое исполнение сделок на основе наших алгоритмов",
+      title: t("about.feature3Title"),
+      description: t("about.feature3Desc"),
       color: "green"
     }
   ];
 
   const stats = [
-    { value: "98.7%", label: "Точность сигналов", icon: <Target className="w-8 h-8" />, color: "green" },
-    { value: "10K+", label: "Активных трейдеров", icon: <Users className="w-8 h-8" />, color: "blue" },
-    { value: "24/7", label: "Работа системы", icon: <Clock className="w-8 h-8" />, color: "purple" },
-    { value: "45%", label: "Средняя доходность", icon: <TrendingUp className="w-8 h-8" />, color: "yellow" }
+    { value: "98.7%", label: t("about.signalAccuracy"), icon: <Target className="w-8 h-8" />, color: "green" },
+    { value: "10K+", label: t("about.usersCount"), icon: <Users className="w-8 h-8" />, color: "blue" },
+    { value: "24/7", label: t("about.systemUptime"), icon: <Clock className="w-8 h-8" />, color: "purple" },
+    { value: "45%", label: t("about.averageReturn"), icon: <TrendingUp className="w-8 h-8" />, color: "yellow" }
   ];
 
   return (
@@ -108,57 +114,56 @@ export default function AboutPage() {
         <div className="container mx-auto max-w-6xl relative z-10">
           {/* Заголовок и описание */}
           <div className="text-center mb-16">
-            <motion.h1 
+            <motion.h1
               initial={{ opacity: 0, y: -50 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
               className="text-5xl md:text-7xl lg:text-8xl font-bold mb-6 tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-blue-300 to-gray-400"
             >
-              О нас
+              {t("about.title")}
             </motion.h1>
-            
-            <motion.div 
+
+            <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
               className="space-y-2"
             >
               <p className="text-xl md:text-2xl lg:text-3xl text-gray-300 font-light">
-                Инновации, искусственный интеллект и автоматизация —
-              </p>
-              <p className="text-xl md:text-2xl lg:text-3xl text-gray-300 font-light">
-                всё ради вашего преимущества на рынке
+                {t("about.subtitle")}
               </p>
             </motion.div>
           </div>
 
           {/* Кнопки регистрации и авторизации */}
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-            className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-24"
-          >
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button 
-                size="lg" 
-                onClick={handleOpenRegister}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-10 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/30"
-              >
-                Начать торговать <ArrowRight className="ml-2" />
-              </Button>
+          {!isAuthenticated && !user && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+              className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-24"
+            >
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  size="lg"
+                  onClick={handleOpenRegister}
+                  className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-10 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/30"
+                >
+                  {t("header.register")} <ArrowRight className="ml-2" />
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={handleOpenLogin}
+                  className="border-2 border-white/50 hover:border-white hover:bg-white/10 text-white px-10 py-6 text-lg rounded-xl font-semibold transition-all backdrop-blur-sm"
+                >
+                  {t("header.login")}
+                </Button>
+              </motion.div>
             </motion.div>
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button 
-                size="lg" 
-                variant="outline" 
-                onClick={handleOpenLogin}
-                className="border-2 border-white/50 hover:border-white hover:bg-white/10 text-white px-10 py-6 text-lg rounded-xl font-semibold transition-all backdrop-blur-sm"
-              >
-                Войти в аккаунт
-              </Button>
-            </motion.div>
-          </motion.div>
+          )}
 
           {/* Статистика */}
           <motion.div 
@@ -167,13 +172,13 @@ export default function AboutPage() {
             transition={{ duration: 0.8, delay: 0.6 }}
             className="bg-black/40 backdrop-blur-sm border border-white/10 rounded-2xl p-8 md:p-12 max-w-4xl mx-auto shadow-xl"
           >
-            <motion.h2 
+            <motion.h2
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.8 }}
               className="text-2xl md:text-3xl font-bold text-center mb-10 text-gray-200"
             >
-              Наши достижения
+              {t("aboutExtended.achievements")}
             </motion.h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -205,14 +210,14 @@ export default function AboutPage() {
       {/* Mission Section */}
       <AnimatedSection>
         <div className="container mx-auto max-w-6xl">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-3xl md:text-4xl font-bold text-center mb-10"
           >
-            Проверенные <span className="text-blue-400">решения</span>
+            {t("aboutExtended.provenSolutions")}
           </motion.h2>
           
           <motion.div 
@@ -223,34 +228,36 @@ export default function AboutPage() {
             className="bg-black/40 backdrop-blur-sm border border-white/10 rounded-2xl p-8 md:p-12 hover:shadow-xl hover:shadow-blue-500/10 transition-all mb-16"
           >
             <div className="space-y-8">
-              <motion.p 
+              <motion.p
                 initial={{ opacity: 0 }}
                 whileInView={{ opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
                 viewport={{ once: true }}
                 className="text-lg md:text-xl text-gray-300 leading-relaxed"
               >
-                Наша миссия — помогать трейдерам на всех этапах их пути, предоставляя инструменты, которые упрощают анализ рынков и повышают эффективность сделок.
+                {t("about.missionDesc")}
               </motion.p>
-              
-              <motion.p 
+
+              <motion.p
                 initial={{ opacity: 0 }}
                 whileInView={{ opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
                 viewport={{ once: true }}
                 className="text-lg md:text-xl text-gray-300 leading-relaxed"
               >
-                Мы верим, что успешный трейдинг — это не только стратегия и цифры, но и доступ к качественной информации, своевременным сигналам и надёжной поддержке.
+                {t("home.home") === 'Home'
+                  ? 'We believe that successful trading is not only about strategy and numbers, but also access to quality information, timely signals, and reliable support.'
+                  : 'Мы верим, что успешный трейдинг — это не только стратегия и цифры, но и доступ к качественной информации, своевременным сигналам и надёжной поддержке.'}
               </motion.p>
-              
-              <motion.p 
+
+              <motion.p
                 initial={{ opacity: 0 }}
                 whileInView={{ opacity: 1 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
                 viewport={{ once: true }}
                 className="text-lg md:text-xl text-gray-300 leading-relaxed"
               >
-                Искусственный интеллект анализирует рынки и подаёт сигналы, чтобы вы зарабатывали быстрее.
+                {t("aboutExtended.aiAnalyzesMarkets")}
               </motion.p>
             </div>
           </motion.div>
@@ -267,14 +274,14 @@ export default function AboutPage() {
           </motion.div>
 
           {/* Преимущества */}
-          <motion.h3 
+          <motion.h3
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-2xl md:text-3xl font-bold text-center mb-12"
           >
-            Почему <span className="text-blue-400">Neura</span>?
+            {t("aboutExtended.whyNeura")}
           </motion.h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20">
@@ -306,23 +313,23 @@ export default function AboutPage() {
       {/* Team Section */}
       <section className="py-20 px-4 bg-gradient-to-b from-transparent to-gray-900/30">
         <div className="container mx-auto max-w-6xl">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
             className="text-3xl md:text-4xl font-bold text-center mb-4"
           >
-            НАША <span className="text-blue-400">КОМАНДА</span>
+            {t("about.team")}
           </motion.h2>
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             viewport={{ once: true }}
             className="text-xl text-gray-400 text-center mb-12"
           >
-            Эксперты, создающие будущее трейдинга
+            {t("aboutExtended.teamSubtitle")}
           </motion.p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-20">
@@ -382,14 +389,14 @@ export default function AboutPage() {
 
           {/* Дополнительные преимущества */}
           <div className="max-w-4xl mx-auto">
-            <motion.h3 
+            <motion.h3
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
               viewport={{ once: true }}
               className="text-2xl md:text-3xl font-bold text-center mb-12"
             >
-              Что отличает нас от других
+              {t("aboutExtended.whatDistinguishes")}
             </motion.h3>
 
             <motion.div 
@@ -401,29 +408,29 @@ export default function AboutPage() {
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {[
-                  { 
-                    icon: <Award className="w-8 h-8 text-yellow-400" />, 
-                    title: "Подтверждённые результаты", 
-                    desc: "Наши алгоритмы прошли многолетнее тестирование на исторических данных с подтверждённой эффективностью",
-                    color: "yellow" 
+                  {
+                    icon: <Award className="w-8 h-8 text-yellow-400" />,
+                    title: t("about.provenResultsTitle"),
+                    desc: t("about.provenResultsDesc2"),
+                    color: "yellow"
                   },
-                  { 
-                    icon: <Headphones className="w-8 h-8 text-green-400" />, 
-                    title: "24/7 Поддержка", 
-                    desc: "Круглосуточная поддержка через Telegram и внутри платформы для всех пользователей",
-                    color: "green" 
+                  {
+                    icon: <Headphones className="w-8 h-8 text-green-400" />,
+                    title: t("about.support247"),
+                    desc: t("about.support247Desc"),
+                    color: "green"
                   },
-                  { 
-                    icon: <Smartphone className="w-8 h-8 text-blue-400" />, 
-                    title: "Мультиплатформенность", 
-                    desc: "Работайте с любого устройства: ПК, планшет или смартфон - все функции доступны везде",
-                    color: "blue" 
+                  {
+                    icon: <Smartphone className="w-8 h-8 text-blue-400" />,
+                    title: t("about.multiplatform"),
+                    desc: t("about.multiplatformDesc"),
+                    color: "blue"
                   },
-                  { 
-                    icon: <MessageCircle className="w-8 h-8 text-purple-400" />, 
-                    title: "Сообщество трейдеров", 
-                    desc: "Общайтесь с другими трейдерами, делитесь опытом и получайте дополнительные инсайты",
-                    color: "purple" 
+                  {
+                    icon: <MessageCircle className="w-8 h-8 text-purple-400" />,
+                    title: t("about.traderCommunity"),
+                    desc: t("about.traderCommunityDesc"),
+                    color: "purple"
                   },
                 ].map((item, index) => (
                   <motion.div
@@ -470,37 +477,47 @@ export default function AboutPage() {
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
             />
 
-            <motion.h2 
+            <motion.h2
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
               viewport={{ once: true }}
               className="text-3xl md:text-4xl font-bold mb-6 relative z-10"
             >
-              Начните зарабатывать с ИИ уже сегодня
+              {t("aboutExtended.startEarningToday")}
             </motion.h2>
-            <motion.p 
+            <motion.p
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.2 }}
               viewport={{ once: true }}
               className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto relative z-10"
             >
-              Присоединяйтесь к тысячам трейдеров, которые уже используют наши решения для увеличения своей прибыли
+              {t("aboutExtended.joinThousands")}
             </motion.p>
-            
-            <motion.div 
+
+            <motion.div
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className="relative z-10"
             >
-              <Button 
-                size="lg" 
-                onClick={handleOpenRegister}
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-12 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/30"
-              >
-                Начать бесплатный период <Rocket className="ml-2" />
-              </Button>
+              {!isAuthenticated && !user ? (
+                <Button
+                  size="lg"
+                  onClick={handleOpenRegister}
+                  className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-12 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/30"
+                >
+                  {t("aboutExtended.startFreeTrial")} <Rocket className="ml-2" />
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  onClick={() => router.push("/Signals")}
+                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white px-12 py-6 text-lg rounded-xl font-semibold transition-all shadow-lg shadow-green-500/30"
+                >
+                  {t("header.getSignal")} <Zap className="ml-2" />
+                </Button>
+              )}
             </motion.div>
           </motion.div>
         </div>

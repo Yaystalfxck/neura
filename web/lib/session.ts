@@ -1,70 +1,45 @@
-import { getDb } from './database';
+import { query } from './database';
 import { randomBytes } from 'crypto';
 
 // Создание сессии
 export async function createSession(userId: number): Promise<string> {
-  const db = await getDb();
-  
-  return new Promise((resolve, reject) => {
-    // Генерируем уникальный токен
-    const token = randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 дней
-    
-    db.run(
-      `INSERT INTO sessions (userId, token, expiresAt) VALUES (?, ?, ?)`,
-      [userId, token, expiresAt.toISOString()],
-      function(err) {
-        if (err) reject(err);
-        else resolve(token);
-      }
-    );
-  });
+  const token = randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 дней
+
+  await query(`
+    INSERT INTO sessions (user_id, token, expires_at)
+    VALUES ($1, $2, $3)
+  `, [userId, token, expiresAt]);
+
+  return token;
 }
 
 // Проверка сессии
 export async function verifySession(token: string): Promise<number | null> {
-  const db = await getDb();
-  
-  return new Promise((resolve, reject) => {
-    db.get(
-      `SELECT userId FROM sessions WHERE token = ? AND expiresAt > datetime('now')`,
-      [token],
-      (err, row: any) => {
-        if (err) reject(err);
-        else resolve(row ? row.userId : null);
-      }
-    );
-  });
+  const result = await query(`
+    SELECT user_id FROM sessions 
+    WHERE token = $1 AND expires_at > NOW()
+  `, [token]);
+
+  return result.rows[0] ? result.rows[0].user_id : null;
 }
 
 // Удаление сессии
 export async function deleteSession(token: string): Promise<void> {
-  const db = await getDb();
-  
-  return new Promise((resolve, reject) => {
-    db.run(
-      `DELETE FROM sessions WHERE token = ?`,
-      [token],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+  await query('DELETE FROM sessions WHERE token = $1', [token]);
 }
 
 // Удаление всех сессий пользователя
 export async function deleteAllUserSessions(userId: number): Promise<void> {
-  const db = await getDb();
-  
-  return new Promise((resolve, reject) => {
-    db.run(
-      `DELETE FROM sessions WHERE userId = ?`,
-      [userId],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+  await query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+}
+
+// Получить сессию по токену
+export async function getSessionByToken(token: string): Promise<any> {
+  const result = await query(`
+    SELECT * FROM sessions 
+    WHERE token = $1 AND expires_at > NOW()
+  `, [token]);
+
+  return result.rows[0] || null;
 }
