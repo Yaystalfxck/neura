@@ -26,6 +26,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     pocket_option_id: str
+    referral_code: Optional[str] = None
 
 
 class UserUpdate(BaseModel):

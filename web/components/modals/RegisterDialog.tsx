@@ -198,6 +198,9 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
     setIsLoading(true);
     
     try {
+      // Получаем referral code из localStorage (установлен ReferralContext при клике по ссылке)
+      const referralCode = typeof window !== 'undefined' ? localStorage.getItem('referral_code') : null;
+
       const response = await fetch('/api/register', {
         method: 'POST',
         headers: {
@@ -208,6 +211,7 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
           email: formData.email,
           password: formData.password,
           pocketOptionId: formData.pocketOptionId,
+          referralCode: referralCode || undefined,
         }),
       });
       

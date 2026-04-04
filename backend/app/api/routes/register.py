@@ -24,10 +24,10 @@ def generate_random_pocket_id() -> str:
 @router.post("/register", response_model=dict)
 async def register(
     user_data: UserCreate,
-    referral_code: str = Query(None, alias="referral_code"),  # Реферальный код (опционально)
     db: AsyncSession = Depends(get_db)
 ):
     """Регистрация нового пользователя"""
+    referral_code = user_data.referral_code
     # Проверка существующего email
     result = await db.execute(
         select(User).where(User.email == user_data.email)
