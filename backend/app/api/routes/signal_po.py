@@ -482,14 +482,23 @@ async def get_signal(
             print(f"   Цена: {best_asset['last_price']:.5f}")
             print(f"   Payout: {best_asset['payout']}%")
             
-            # Рассчитываем оптимальное время экспирации
-            if best_asset['volatility'] < 1:
-                optimal_timeframe = 10  # Низкая волатильность - дольше экспирация
+            # Рассчитываем оптимальное время экспирации (3-10 мин, в основном 5 мин)
+            if best_asset['volatility'] < 0.5:
+                # Низкая волатильность: 7-10 мин
+                optimal_timeframe = random.randint(7, 10)
             elif best_asset['volatility'] > 3:
-                optimal_timeframe = 3  # Высокая волатильность - короче экспирация
+                # Высокая волатильность: 3-4 мин
+                optimal_timeframe = random.randint(3, 4)
             else:
-                optimal_timeframe = 5  # Средняя волатильность - стандартная экспирация
-            
+                # Средняя волатильность: 50% - 5 мин, 30% - 3-4, 20% - 7-10
+                r = random.random()
+                if r < 0.5:
+                    optimal_timeframe = 5
+                elif r < 0.8:
+                    optimal_timeframe = random.randint(3, 4)
+                else:
+                    optimal_timeframe = random.randint(7, 10)
+
             print(f"   ⏱️ Оптимальная экспирация: {optimal_timeframe} мин")
         else:
             # Если не удалось проанализировать, берем первый доступный
