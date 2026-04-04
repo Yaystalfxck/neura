@@ -22,7 +22,7 @@ export function LanguageSwitcher() {
     >
       <Globe className="w-4 h-4 text-gray-400" />
       <span className="text-sm font-medium text-gray-300">
-        {language === 'en' ? 'RU' : 'EN'}
+        {language === 'en' ? 'English' : 'Русский'}
       </span>
     </motion.button>
   );

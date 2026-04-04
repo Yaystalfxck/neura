@@ -155,8 +155,6 @@ async def get_signal(
             .where(cast(SignalUsage.used_at, Date) == today)
         )
         used_today = result.scalar() or 0
-        
-        print(f"📊 Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано сегодня ({today})")
 
         # Получаем баланс
         # Для flaun.feed@mail.ru - получаем с демо-счёта PO WebSocket

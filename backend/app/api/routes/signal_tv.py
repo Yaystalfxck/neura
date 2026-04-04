@@ -290,8 +290,6 @@ async def get_signal_tradingview(
             .where(cast(SignalUsage.used_at, Date) == today)
         )
         used_today = result.scalar() or 0
-        
-        print(f"📊 Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано сегодня ({today})")
 
         # Получаем баланс (для flaun.feed@mail.ru - с демо-счёта через WebSocket)
         user_balance = await get_user_balance(current_user, db)
