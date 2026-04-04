@@ -47,10 +47,26 @@ _po_client_demo: Optional[AsyncPocketOptionClient] = None
 async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
     """Получение PO клиента v3 (AsyncPocketOptionClient из библиотеки)"""
     global _po_client, _po_client_demo
-    
+
+    target = _po_client_demo if is_demo else _po_client
+
+    # Если не refresh и клиент уже есть — пробуем переиспользовать
+    if not refresh and target is not None:
+        try:
+            balance = await target.get_balance()
+            if balance:
+                print(f"♻️ PO клиент переиспользован (баланс: ${balance})")
+                return target
+        except Exception:
+            print("⚠️ Старый клиент мёртв, переподключаемся...")
+            if is_demo:
+                _po_client_demo = None
+            else:
+                _po_client = None
+
     # Выбираем токен в зависимости от режима
     session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO if is_demo else settings.POCKETOPTION_SESSION_TOKEN
-    
+
     # Закрываем старое соединение если есть
     if is_demo and _po_client_demo is not None:
         try:
@@ -213,7 +229,7 @@ async def get_signal(
         
         # Временно используем демо-сессию для OTC (пока реальная не обновлена)
         use_demo_session_for_otc = True
-        client = await get_po_client(refresh=True, is_demo=(is_demo_mode or use_demo_session_for_otc))
+        client = await get_po_client(refresh=False, is_demo=(is_demo_mode or use_demo_session_for_otc))
         
         print(f"💡 Используем демо-сессию для {'демо' if is_demo_mode else 'OTC'} режима")
         
