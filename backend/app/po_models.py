@@ -44,7 +44,7 @@ class StrategyType(str, enum.Enum):
     """Тип стратегии"""
     MARTINGALE = "martingale"
     INDICATORS = "indicators"
-    MACHINE_LEARNING = "ml"
+    MACHINE_LEARNING = "machine_learning"
     CUSTOM = "custom"
 
 

@@ -1,288 +1,310 @@
-# Neura Trading Platform - Руководство по установке на сервер
+# Neura Trading Platform — Установка и запуск на сервере Ubuntu
 
 ## Содержание
-1. [Требования к серверу](#требования-к-серверу)
-2. [Подготовка сервера](#подготовка-сервера)
-3. [Установка Docker](#установка-docker)
-4. [Настройка Backend](#настройка-backend)
-5. [Настройка Frontend](#настройка-frontend)
-6. [Подключение домена](#подключение-домена)
-7. [Настройка Nginx](#настройка-nginx)
-8. [SSL сертификаты](#ssl-сертификаты)
-9. [Запуск проекта](#запуск-проекта)
-10. [Мониторинг и обслуживание](#мониторинг-и-обслуживание)
+1. [Требования к серверу](#1-требования-к-серверу)
+2. [Подготовка сервера](#2-подготовка-сервера)
+3. [Клонирование проекта](#3-клонирование-проекта)
+4. [Установка Docker и Docker Compose](#4-установка-docker-и-docker-compose)
+5. [Настройка Backend](#5-настройка-backend)
+6. [Настройка Frontend](#6-настройка-frontend)
+7. [Настройка Nginx](#7-настройка-nginx)
+8. [SSL-сертификаты (Let's Encrypt)](#8-ssl-сертификаты-lets-encrypt)
+9. [Настройка фаервола (UFW)](#9-настройка-фаервола-ufw)
+10. [Первый запуск и проверка](#10-первый-запуск-и-проверка)
+11. [Обслуживание](#11-обслуживание)
 
 ---
 
-## Требования к серверу
+## 1. Требования к серверу
 
-**Минимальные:**
-- CPU: 2 ядра
-- RAM: 4 GB
-- Disk: 20 GB SSD
-- OS: Ubuntu 20.04/22.04 LTS
-
-**Рекомендуемые:**
-- CPU: 4 ядра
-- RAM: 8 GB
-- Disk: 40 GB SSD
-- OS: Ubuntu 22.04 LTS
+| Ресурс | Минимум | Рекомендация |
+|--------|---------|-------------|
+| CPU    | 2 ядра  | 4 ядра      |
+| RAM    | 4 GB    | 8 GB        |
+| Disk   | 20 GB SSD | 40 GB SSD |
+| OS     | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS |
 
 ---
 
-## Подготовка сервера
+## 2. Подготовка сервера
 
-### 1. Подключение к серверу
+### Подключение
+
 ```bash
-ssh root@your-server-ip
+ssh root@<IP-адрес-сервера>
 ```
 
-### 2. Обновление системы
+### Обновление системы
+
 ```bash
 apt update && apt upgrade -y
 ```
 
-### 3. Создание пользователя (опционально)
+### Установка базовых утилит
+
 ```bash
-adduser neura
-usermod -aG sudo neura
-su - neura
+apt install -y curl wget git nano htop ufw
 ```
 
 ---
 
-## Установка Docker
+## 3. Клонирование проекта
 
-### 1. Установка Docker и Docker Compose
-```bash
-# Установка Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
-
-# Добавление пользователя в группу docker
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Установка Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-
-# Проверка установки
-docker --version
-docker-compose --version
-```
-
----
-
-## Настройка Backend
-
-### 1. Загрузка файлов проекта
 ```bash
 # Создаем директорию
 mkdir -p /opt/neura
 cd /opt/neura
 
-# Копируем файлы backend (через scp, git или вручную)
-# Пример с git:
-git clone <your-repo-url> backend
-cd backend
+# Клонируем весь репозиторий
+git clone https://github.com/Yaystalfxck/neura.git .
+
+# Проверяем структуру
+ls -la backend/ web/
 ```
 
-### 2. Настройка переменных окружения
-```bash
-# Копируем .env.example в .env
-cp .env.example .env
+Структура проекта:
 
-# Редактируем .env
+```
+/opt/neura/
+├── backend/          # Python FastAPI
+│   ├── .env.example
+│   ├── docker-compose.yml
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── app/
+└── web/              # Next.js Frontend
+    ├── .env.example (или .env.local)
+    ├── package.json
+    └── app/
+```
+
+---
+
+## 4. Установка Docker и Docker Compose
+
+```bash
+# Установка Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+
+# Автозапуск Docker
+systemctl enable docker
+systemctl start docker
+
+# Проверка
+docker --version
+docker compose version
+```
+
+---
+
+## 5. Настройка Backend
+
+### 5.1. Создание .env файла
+
+```bash
+cd /opt/neura/backend
+cp .env.example .env
 nano .env
 ```
 
-**Важно:** Никогда не коммитьте `.env` файлы в git! Используйте `.env.example` как шаблон.
+Заполните `.env`:
 
-### 3. Конфигурация .env
-```bash
-# Database
+```env
+# Database (для Docker — оставляем как есть, Docker сам создаст БД)
 DATABASE_URL=postgresql+asyncpg://neura:neura_password@postgres:5432/neura_db
 
-# JWT Settings
-SECRET_KEY=your-super-secret-key-min-32-characters-long-for-security
+# JWT
+SECRET_KEY=<сгенерируйте случайную строку 32+ символов>
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_DAYS=7
 
-# SMTP Email Settings
+# SMTP (email для восстановления пароля)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password  # App Password, не обычный пароль!
-SMTP_FROM=noreply@yourdomain.com
+SMTP_USER=ваш-email@gmail.com
+SMTP_PASSWORD=<App Password из Google Account>
+SMTP_FROM=ваш-email@gmail.com
 
-# API Settings
-API_URL=https://api.yourdomain.com
-FRONTEND_URL=https://yourdomain.com
+# API URLs (замените на ваш домен после настройки)
+API_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:3000
 
-# PocketOption API Settings
-POCKETOPTION_API_TOKEN=your-api-token
-NEXT_PUBLIC_PARTNER_ID=your-partner-id
-POCKETOPTION_EMAIL=your-po-email
-POCKETOPTION_PASSWORD=your-po-password
+# PocketOption Affiliate API
+POCKETOPTION_API_TOKEN=<ваш API токен>
+NEXT_PUBLIC_PARTNER_ID=<ваш partner ID>
+POCKETOPTION_EMAIL=<email аккаунта PO>
+POCKETOPTION_PASSWORD=<пароль аккаунта PO>
+
+# PocketOption WebSocket (для сигналов)
+POCKETOPTION_SESSION_TOKEN=<session token из cookies браузера>
+POCKETOPTION_UID=<ваш UID>
+POCKETOPTION_WS_URL=wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket
 ```
 
-### 4. Запуск Backend
+> **App Password для Gmail:** https://myaccount.google.com/apppasswords  
+> **SECRET_KEY** — сгенерировать: `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`
+
+### 5.2. Запуск Backend
+
 ```bash
-# Запуск через Docker Compose
-docker-compose up -d
-
-# Проверка статуса
-docker-compose ps
-
-# Просмотр логов
-docker-compose logs -f backend
-docker-compose logs -f postgres
+cd /opt/neura/backend
+docker compose up -d --build
 ```
 
-### 5. Инициализация базы данных
-```bash
-# Запуск миграций (если используется Alembic)
-docker-compose exec backend alembic upgrade head
+Контейнеры:
+- `neura_postgres` — PostgreSQL 15
+- `neura_backend` — FastAPI на порту 8000
 
-# Создание суперпользователя (опционально)
-docker-compose exec backend python -c "from app.database import *; from app.models import *; import asyncio; asyncio.run(create_admin())"
+### 5.3. Применение миграций БД
+
+```bash
+docker compose exec backend alembic upgrade head
+```
+
+### 5.4. Создание администратора
+
+```bash
+docker compose exec backend python3 -c "
+from app.database import AsyncSessionLocal, init_db
+from app.models import User
+from app.utils import get_password_hash
+import asyncio
+
+async def create_admin():
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        admin = User(
+            name='Admin',
+            email='admin@neura.com',
+            password=get_password_hash('admin123'),
+            pocket_option_id='ADMIN001',
+            role='admin',
+            balance=10000
+        )
+        db.add(admin)
+        await db.commit()
+
+asyncio.run(create_admin())
+"
+```
+
+### 5.5. Проверка
+
+```bash
+docker compose ps
+docker compose logs -f backend
+curl http://localhost:8000/docs
 ```
 
 ---
 
-## Настройка Frontend
+## 6. Настройка Frontend
 
-### 1. Загрузка файлов проекта
+### 6.1. Создание .env.local
+
 ```bash
-cd /opt/neura
-git clone <your-repo-url> web
-cd web
-```
-
-### 2. Настройка переменных окружения
-```bash
-# Создаем .env.local из .env.example
-cp .env.example .env.local
-
-# Редактируем .env.local
+cd /opt/neura/web
 nano .env.local
 ```
 
-**Важно:** Никогда не коммитьте `.env.local` файлы в git! Используйте `.env.example` как шаблон.
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-### 3. Конфигурация .env.local
-```bash
-# Frontend environment variables
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
-NEXT_PUBLIC_APP_URL=https://yourdomain.com
+# Для server-side API вызовов
+DATABASE_URL=postgresql://neura:neura_password@localhost:5432/neura_db
 
-# Database (PostgreSQL) - для server-side операций
-DATABASE_URL=postgres://neura:neura_password@localhost:5432/neura_db
-
-# PocketOption API Settings
-POCKETOPTION_API_TOKEN=your-api-token
-NEXT_PUBLIC_PARTNER_ID=your-partner-id
-POCKETOPTION_EMAIL=your-po-email
-POCKETOPTION_PASSWORD=your-po-password
+# PocketOption (дублируются из backend для server-side)
+POCKETOPTION_API_TOKEN=<ваш API токен>
+NEXT_PUBLIC_PARTNER_ID=<ваш partner ID>
+POCKETOPTION_EMAIL=<email аккаунта PO>
+POCKETOPTION_PASSWORD=<пароль аккаунта PO>
 ```
 
-### 4. Установка зависимостей и сборка
+### 6.2. Установка Node.js
+
 ```bash
-# Установка Node.js 20.x
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+node --version
+npm --version
+```
 
-# Установка зависимостей
+### 6.3. Установка зависимостей и сборка
+
+```bash
+cd /opt/neura/web
 npm install
-
-# Сборка проекта
 npm run build
 ```
 
-### 5. Настройка PM2 (Process Manager)
+### 6.4. Запуск через PM2
+
 ```bash
 # Установка PM2
-sudo npm install -g pm2
+npm install -g pm2
 
-# Запуск приложения
+# Запуск
 pm2 start npm --name "neura-web" -- start
 
-# Сохранение конфигурации
+# Автозапуск
 pm2 save
-
-# Автозапуск при загрузке
 pm2 startup
-# Выполните команду которую выведет pm2 startup
+# Выполните команду, которую выведет pm2 startup
+```
+
+### 6.5. Проверка
+
+```bash
+pm2 status
+curl http://localhost:3000
 ```
 
 ---
 
-## Подключение домена
+## 7. Настройка Nginx
 
-### 1. Настройка DNS записей
+### 7.1. Установка
 
-В панели управления доменом создайте записи:
-
-```
-Тип    Имя              Значение              TTL
-A      @                ваш-server-ip         3600
-A      api              ваш-server-ip         3600
-CNAME  www              yourdomain.com        3600
-```
-
-### 2. Проверка DNS
 ```bash
-# Проверка DNS записей
-nslookup yourdomain.com
-nslookup api.yourdomain.com
+apt install -y nginx
+systemctl enable nginx
+systemctl start nginx
 ```
 
----
+### 7.2. Конфигурация
 
-## Настройка Nginx
-
-### 1. Установка Nginx
 ```bash
-sudo apt install nginx -y
-sudo systemctl enable nginx
-sudo systemctl start nginx
+nano /etc/nginx/sites-available/neura
 ```
 
-### 2. Конфигурация Nginx
-
-Создайте файл конфигурации:
-```bash
-sudo nano /etc/nginx/sites-available/neura
-```
-
-### 3. Конфигурация для Frontend + Backend
 ```nginx
-# Frontend
+# Frontend (порт 3000)
 server {
     listen 80;
-    server_name yourdomain.com www.yourdomain.com;
+    server_name ваш-домен.com www.ваш-домен.com;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
     }
 }
 
-# Backend API
+# Backend API (порт 8000)
 server {
     listen 80;
-    server_name api.yourdomain.com;
+    server_name api.ваш-домен.com;
 
     location / {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -292,237 +314,256 @@ server {
 }
 ```
 
-### 4. Активация конфигурации
+> **Замените** `ваш-домен.com` на ваш реальный домен.
+
+### 7.3. Активация
+
 ```bash
-# Создание символической ссылки
-sudo ln -s /etc/nginx/sites-available/neura /etc/nginx/sites-enabled/
-
-# Удаление дефолтной конфигурации
-sudo rm /etc/nginx/sites-enabled/default
-
-# Проверка конфигурации
-sudo nginx -t
-
-# Перезапуск Nginx
-sudo systemctl restart nginx
+ln -s /etc/nginx/sites-available/neura /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl restart nginx
 ```
 
 ---
 
-## SSL сертификаты
+## 8. SSL-сертификаты (Let's Encrypt)
 
-### 1. Установка Certbot
 ```bash
-sudo apt install certbot python3-certbot-nginx -y
+# Установка Certbot
+apt install -y certbot python3-certbot-nginx
+
+# Получение сертификатов
+certbot --nginx -d ваш-домен.com -d www.ваш-домен.com
+certbot --nginx -d api.ваш-домен.com
 ```
 
-### 2. Получение сертификатов
-```bash
-# Для frontend
-sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+Certbot автоматически обновит конфигурацию Nginx с SSL.
 
-# Для backend API
-sudo certbot --nginx -d api.yourdomain.com
+### Автообновление
+
+```bash
+certbot renew --dry-run
+# Certbot автоматически обновляет сертификаты через systemd timer
 ```
 
-### 3. Автообновление сертификатов
-```bash
-# Проверка автообновления
-sudo certbot renew --dry-run
+### После SSL — обновите .env
 
-# Certbot автоматически обновит сертификаты
+**Backend `.env`:**
+```env
+API_URL=https://api.ваш-домен.com
+FRONTEND_URL=https://ваш-домен.com
 ```
 
-### 4. Конфигурация Nginx с SSL (автоматически создается Certbot)
+**Frontend `.env.local`:**
+```env
+NEXT_PUBLIC_API_URL=https://api.ваш-домен.com
+NEXT_PUBLIC_APP_URL=https://ваш-домен.com
+```
 
-Nginx конфигурация будет обновлена автоматически с SSL настройками.
+Перезапустите сервисы:
+```bash
+cd /opt/neura/backend && docker compose down && docker compose up -d --build
+cd /opt/neura/web && pm2 restart neura-web
+```
 
 ---
 
-## Запуск проекта
+## 9. Настройка фаервола (UFW)
 
-### 1. Проверка всех сервисов
+```bash
+ufw allow OpenSSH
+ufw allow 'Nginx Full'
+ufw enable
+ufw status
+```
+
+---
+
+## 10. Первый запуск и проверка
+
+### Проверка всех сервисов
+
 ```bash
 # Backend
-docker-compose ps
+docker compose -f /opt/neura/backend/docker-compose.yml ps
 
 # Frontend
 pm2 status
 
 # Nginx
-sudo systemctl status nginx
+systemctl status nginx
 ```
 
-### 2. Просмотр логов
-```bash
-# Backend логи
-docker-compose logs -f backend
+### Тестирование
 
-# Frontend логи
+```bash
+# Frontend
+curl -I https://ваш-домен.com
+
+# Backend API
+curl https://api.ваш-домен.com/api/health
+
+# Swagger Docs
+curl https://api.ваш-домен.com/docs
+```
+
+### Логи
+
+```bash
+# Backend
+docker compose -f /opt/neura/backend/docker-compose.yml logs -f backend
+
+# Frontend
 pm2 logs neura-web
 
-# Nginx логи
-sudo tail -f /var/log/nginx/access.log
-sudo tail -f /var/log/nginx/error.log
-```
-
-### 3. Тестирование
-```bash
-# Проверка frontend
-curl https://yourdomain.com
-
-# Проверка backend API
-curl https://api.yourdomain.com/api/health
-
-# Проверка WebSocket (если есть)
-curl -i https://api.yourdomain.com/api/
+# Nginx
+tail -f /var/log/nginx/access.log
+tail -f /var/log/nginx/error.log
 ```
 
 ---
 
-## Мониторинг и обслуживание
+## 11. Обслуживание
 
-### 1. Мониторинг ресурсов
+### Обновление проекта
+
 ```bash
-# Использование Docker
-docker stats
+cd /opt/neura
+git pull
 
-# Использование PM2
-pm2 monit
-
-# Системные ресурсы
-htop
-df -h
-free -h
-```
-
-### 2. Резервное копирование базы данных
-```bash
-# Создание бэкапа
-docker-compose exec postgres pg_dump -U neura neura_db > backup_$(date +%Y%m%d).sql
-
-# Восстановление из бэкапа
-cat backup_20260101.sql | docker-compose exec -T postgres psql -U neura -d neura_db
-```
-
-### 3. Обновление проекта
-```bash
 # Backend
 cd /opt/neura/backend
-git pull
-docker-compose down
-docker-compose up -d --build
+docker compose down
+docker compose up -d --build
+docker compose exec backend alembic upgrade head
 
 # Frontend
 cd /opt/neura/web
-git pull
 npm install
 npm run build
 pm2 restart neura-web
 ```
 
-### 4. Очистка старых Docker образов
-```bash
-# Удаление неиспользуемых образов
-docker image prune -a
+### Бэкап базы данных
 
-# Удаление старых контейнеров
-docker container prune
+```bash
+mkdir -p /opt/neura/backups
+
+# Создать бэкап
+docker compose -f /opt/neura/backend/docker-compose.yml exec postgres \
+  pg_dump -U neura neura_db > /opt/neura/backups/backup_$(date +%Y%m%d).sql
+
+# Восстановить из бэкапа
+cat /opt/neura/backups/backup_20260101.sql | \
+  docker compose -f /opt/neura/backend/docker-compose.yml exec -T postgres \
+  psql -U neura -d neura_db
 ```
 
----
+### Мониторинг
 
-## Безопасность
-
-### 1. Настройка фаервола
 ```bash
-# Установка UFW
-sudo apt install ufw
+# Ресурсы контейнеров
+docker stats
 
-# Разрешение SSH, HTTP, HTTPS
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
+# Системные ресурсы
+htop
+df -h
+free -h
 
-# Включение фаервола
-sudo ufw enable
-sudo ufw status
+# PM2 мониторинг
+pm2 monit
 ```
 
-### 2. Настройка Fail2Ban
+### Очистка Docker
+
 ```bash
-sudo apt install fail2ban -y
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
+# Удаление неиспользуемых образов и контейнеров
+docker system prune -af
+
+# Удаление старых томов
+docker volume prune -f
 ```
 
-### 3. Обновление системы
+### Перезапуск сервисов
+
 ```bash
-# Автоматические обновления безопасности
-sudo apt install unattended-upgrades -y
-sudo dpkg-reconfigure --priority=low unattended-upgrades
-```
+# Backend
+docker compose -f /opt/neura/backend/docker-compose.yml restart
 
----
-
-## Решение проблем
-
-### Backend не запускается
-```bash
-# Проверка логов
-docker-compose logs backend
-
-# Пересоздание контейнера
-docker-compose down
-docker-compose up -d --build
-```
-
-### Frontend не доступен
-```bash
-# Проверка PM2
-pm2 status
-pm2 logs neura-web
-
-# Перезапуск
+# Frontend
 pm2 restart neura-web
-```
 
-### Ошибки Nginx
-```bash
-# Проверка конфигурации
-sudo nginx -t
-
-# Перезапуск
-sudo systemctl restart nginx
-
-# Логи
-sudo tail -f /var/log/nginx/error.log
-```
-
-### Проблемы с SSL
-```bash
-# Пересоздание сертификата
-sudo certbot delete --cert-name yourdomain.com
-sudo certbot --nginx -d yourdomain.com
-
-# Проверка автообновления
-sudo certbot renew --dry-run
+# Nginx
+systemctl restart nginx
 ```
 
 ---
 
-## Контакты и поддержка
+## DNS-записи
 
-При возникновении проблем:
-1. Проверьте логи сервисов
-2. Убедитесь что все порты открыты
-3. Проверьте DNS записи
-4. Убедитесь что SSL сертификаты действительны
+В панели управления доменом создайте:
 
-**Документация:**
-- [Docker](https://docs.docker.com/)
-- [Docker Compose](https://docs.docker.com/compose/)
-- [Nginx](https://nginx.org/en/docs/)
-- [Certbot](https://certbot.eff.org/docs/)
-- [PM2](https://pm2.keymetrics.io/docs/)
-- [Next.js](https://nextjs.org/docs)
-- [FastAPI](https://fastapi.tiangolo.com/)
+| Тип | Имя | Значение        | TTL  |
+|-----|-----|----------------|------|
+| A   | @   | IP-адрес сервера | 3600 |
+| A   | api | IP-адрес сервера | 3600 |
+
+---
+
+## Быстрый старт — все команды по порядку
+
+```bash
+# 1. Подготовка
+ssh root@<IP>
+apt update && apt upgrade -y
+apt install -y curl wget git nano htop ufw
+
+# 2. Клонирование
+mkdir -p /opt/neura && cd /opt/neura
+git clone https://github.com/Yaystalfxck/neura.git .
+
+# 3. Docker
+curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
+systemctl enable docker && systemctl start docker
+
+# 4. Backend .env
+cd /opt/neura/backend
+cp .env.example .env
+nano .env  # ← заполните все значения
+
+# 5. Запуск Backend
+docker compose up -d --build
+docker compose exec backend alembic upgrade head
+
+# 6. Frontend .env.local
+cd /opt/neura/web
+nano .env.local  # ← заполните значения
+
+# 7. Node.js + Frontend
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+npm install
+npm run build
+npm install -g pm2
+pm2 start npm --name "neura-web" -- start
+pm2 save
+pm2 startup  # ← выполните выведенную команду
+
+# 8. Nginx
+apt install -y nginx
+nano /etc/nginx/sites-available/neura  # ← вставьте конфиг
+ln -s /etc/nginx/sites-available/neura /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl restart nginx
+
+# 9. SSL
+apt install -y certbot python3-certbot-nginx
+certbot --nginx -d ваш-домен.com -d www.ваш-домен.com
+certbot --nginx -d api.ваш-домен.com
+
+# 10. Фаервол
+ufw allow OpenSSH
+ufw allow 'Nginx Full'
+ufw enable
+```

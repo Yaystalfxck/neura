@@ -7,6 +7,7 @@ ENHANCED: С улучшенным анализом сигналов
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from typing import Optional
 from datetime import datetime, timedelta
 import json
@@ -284,7 +285,7 @@ async def get_signal_tradingview(
 
         # Получаем использование сигналов сегодня (PostgreSQL совместимо)
         result = await db.execute(
-            sa_select(func.count(SignalUsage.id))
+            select(func.count(SignalUsage.id))
             .where(SignalUsage.user_id == current_user.id)
             .where(cast(SignalUsage.used_at, Date) == today)
         )

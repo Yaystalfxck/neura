@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException as FastAPIHTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
@@ -199,8 +199,7 @@ async def get_signal(
 
             # Проверяем лимит
             if used_today >= daily_limit:
-                from fastapi import HTTPException, status
-                raise HTTPException(
+                raise FastAPIHTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня. "
                            f"Для получения {daily_limit + 1} сигналов необходим баланс от ${get_next_limit_balance(user_balance)}."
@@ -594,7 +593,7 @@ async def get_signal(
                             'pair_name': best_asset['name'],
                             'trend': 'bullish' if ml_signal['direction'] == 'call' else 'bearish',
                             'rsi': 50,  # ML не использует RSI напрямую
-                            'db_strategy': 'machine_learning',  # Используем существующее значение enum
+                            'db_strategy': 'MACHINE_LEARNING',  # Соответствует enum StrategyType
                             'ml_accuracy': ml_signal['ml_accuracy']
                         }
                     else:
@@ -704,13 +703,13 @@ async def get_signal(
             }
         }
         
-    except HTTPException:
+    except FastAPIHTTPException:
         raise
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(
+        raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при генерации сигнала: {str(e)}"
         )
@@ -1076,7 +1075,7 @@ async def get_signals_history(
         
     except Exception as e:
         print(f"❌ Ошибка получения истории: {e}")
-        raise HTTPException(
+        raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка получения истории: {str(e)}"
         )
@@ -1103,7 +1102,7 @@ async def get_available_assets(
         
     except Exception as e:
         print(f"❌ Ошибка получения активов: {e}")
-        raise HTTPException(
+        raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка получения активов: {str(e)}"
         )

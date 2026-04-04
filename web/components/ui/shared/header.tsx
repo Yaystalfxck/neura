@@ -97,8 +97,7 @@ export const Header: React.FC<Props> = ({ className }) => {
 
     const userLinks = [
         { id: "profile", href: "/profile", label: t("header.profile"), icon: <User className="w-5 h-5" /> },
-        { id: "balance", href: "/balance", label: t("header.balance"), icon: <Wallet className="w-5 h-5" /> },
-        { id: "settings", href: "/settings", label: t("header.settings"), icon: <Settings className="w-5 h-5" /> },
+        { id: "balance", href: "https://pocketoption.com/en/?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1724298&ac=users&cid=923101&code=WELCOME50", label: t("header.balance"), icon: <Wallet className="w-5 h-5" />, external: true },
         { id: "support", href: "/support", label: t("header.support"), icon: <HelpCircle className="w-5 h-5" /> },
     ];
 
@@ -583,22 +582,43 @@ export const Header: React.FC<Props> = ({ className }) => {
                                                             animate={{ opacity: 1, x: 0 }}
                                                             transition={{ delay: 0.3 + index * 0.05 }}
                                                         >
-                                                            <Link
-                                                                href={link.href}
-                                                                onClick={() => setIsMenuOpen(false)}
-                                                            >
-                                                                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-all group">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="p-2 rounded-lg bg-gray-800">
-                                                                            {link.icon}
+                                                            {link.external ? (
+                                                                <a
+                                                                    href={link.href}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    onClick={() => setIsMenuOpen(false)}
+                                                                >
+                                                                    <div className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-all group">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="p-2 rounded-lg bg-gray-800">
+                                                                                {link.icon}
+                                                                            </div>
+                                                                            <span className="font-medium text-gray-300">
+                                                                                {link.label}
+                                                                            </span>
                                                                         </div>
-                                                                        <span className="font-medium text-gray-300">
-                                                                            {link.label}
-                                                                        </span>
+                                                                        <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-gray-300 group-hover:translate-x-1 transition-transform" />
                                                                     </div>
-                                                                    <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-gray-300 group-hover:translate-x-1 transition-transform" />
-                                                                </div>
-                                                            </Link>
+                                                                </a>
+                                                            ) : (
+                                                                <Link
+                                                                    href={link.href}
+                                                                    onClick={() => setIsMenuOpen(false)}
+                                                                >
+                                                                    <div className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-all group">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="p-2 rounded-lg bg-gray-800">
+                                                                                {link.icon}
+                                                                            </div>
+                                                                            <span className="font-medium text-gray-300">
+                                                                                {link.label}
+                                                                            </span>
+                                                                        </div>
+                                                                        <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-gray-300 group-hover:translate-x-1 transition-transform" />
+                                                                    </div>
+                                                                </Link>
+                                                            )}
                                                         </motion.div>
                                                     ))}
                                                 </div>

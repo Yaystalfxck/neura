@@ -71,7 +71,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
     {
       icon: TrendingUp,
       label: t("header.signals"),
-      href: "/signals",
+      href: "/Signals",
       description: t("userProfile.signalsDesc"),
       color: "text-green-400",
       badge: "New"
@@ -80,7 +80,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
     {
       icon: CreditCard,
       label: "PocketOption",
-      href: "https://po-ru4.click/register?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1686579&ac=users&cid=923101&code=WELCOME50",
+      href: "https://pocketoption.com/en/?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1724298&ac=users&cid=923101&code=WELCOME50",
       description: t("userProfile.brokerDesc"),
       color: "text-orange-400",
       external: true
@@ -88,9 +88,10 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
     {
       icon: Wallet,
       label: t("userProfile.balance"),
-      href: "/balance",
+      href: "https://pocketoption.com/en/?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1724298&ac=users&cid=923101&code=WELCOME50",
       description: t("userProfile.balanceDesc"),
-      color: "text-emerald-400"
+      color: "text-emerald-400",
+      external: true
     },
 
     {
@@ -116,7 +117,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
   };
 
   const handleGetSignal = () => {
-    router.push("/signals");
+    router.push("/Signals");
     setIsOpen(false);
   };
 
@@ -229,7 +230,7 @@ export const UserProfileDropdown: React.FC<UserProfileDropdownProps> = ({
                         {t("userProfile.getSignal")}
                       </Button>
                       <Button
-                        onClick={() => router.push("/balance")}
+                        onClick={() => window.open("https://pocketoption.com/en/?utm_campaign=828455&utm_source=affiliate&utm_medium=sr&a=i3b3QQKnpCQikx&al=1724298&ac=users&cid=923101&code=WELCOME50", "_blank")}
                         size="sm"
                         variant="outline"
                         className="w-full border-gray-700 hover:border-gray-600 hover:bg-gray-800/50 text-white"
