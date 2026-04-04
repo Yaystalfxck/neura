@@ -12,6 +12,15 @@ from datetime import datetime
 router = APIRouter(prefix="/api/user", tags=["User"])
 
 
+COMMISSION_RATES = {
+    "Bronze": 5,
+    "Silver": 7,
+    "Gold": 10,
+    "Platinum": 12,
+    "Diamond": 15,
+}
+
+
 def get_next_limit_balance(current_balance: float) -> float:
     """Возвращает необходимый баланс для следующего лимита"""
     if current_balance >= 200:
@@ -103,12 +112,14 @@ async def sync_balance(
         total_deposit = user_data.get("total_deposit", 0.0)
         deposits_count = user_data.get("deposits_count", 0)
 
-        current_user.balance = new_balance
-
+        # Получаем текущие записи о депозитах, чтобы найти новые
         po_user_result = await db.execute(
             select(PocketOptionUser).where(PocketOptionUser.pocket_option_id == current_user.pocket_option_id)
         )
         po_user = po_user_result.scalar_one_or_none()
+        old_total_deposit = po_user.total_deposit if po_user else 0.0
+
+        current_user.balance = new_balance
 
         if po_user:
             po_user.current_balance = new_balance
@@ -127,6 +138,13 @@ async def sync_balance(
             db.add(po_user)
 
         await db.commit()
+
+        # === АВТОМАТИЧЕСКОЕ НАЧИСЛЕНИЕ КОМИССИИ ЗА ДЕПОЗИТ ===
+        new_deposit_amount = total_deposit - old_total_deposit if total_deposit > old_total_deposit else 0
+
+        if new_deposit_amount > 0:
+            print(f"💰 Обнаружен новый депозит: ${new_deposit_amount} для {current_user.email}")
+            await _create_referral_commission(db, current_user, new_deposit_amount, f"deposit_sync_{int(datetime.utcnow().timestamp())}")
 
         print(f"✅ Баланс синхронизирован для {current_user.email}: ${new_balance}")
 
@@ -167,3 +185,76 @@ async def get_balance(
             "balance": float(current_user.balance or 0),
             "source": "database"
         }
+
+
+async def _create_referral_commission(
+    db: AsyncSession,
+    user: User,
+    deposit_amount: float,
+    source_id: str
+) -> dict:
+    """Автоматическое создание комиссии за депозит реферала"""
+    # Ищем, есть ли у пользователя реферер
+    result = await db.execute(
+        select(Referral).where(Referral.referred_id == user.id)
+    )
+    referral = result.scalar_one_or_none()
+
+    if not referral:
+        return {"commission": None, "message": "No referrer found"}
+
+    # Ищем реферера
+    referrer_result = await db.execute(
+        select(User).where(User.id == referral.referrer_id)
+    )
+    referrer = referrer_result.scalar_one_or_none()
+
+    if not referrer:
+        return {"commission": None, "message": "Referrer not found"}
+
+    # Проверяем, не была ли уже создана комиссия за этот депозит
+    existing_result = await db.execute(
+        select(Commission).where(Commission.source == source_id)
+    )
+    if existing_result.scalar_one_or_none():
+        return {"commission": None, "message": "Commission already exists"}
+
+    # Определяем процент комиссии на основе ранга реферера
+    commission_rate = COMMISSION_RATES.get(referrer.referral_rank or "Bronze", 5)
+    commission_amount = deposit_amount * (commission_rate / 100)
+
+    # Создаём запись комиссии
+    commission = Commission(
+        user_id=referrer.id,
+        referral_id=referral.id,
+        amount=commission_amount,
+        type="deposit",
+        status="pending",
+        description=f"Комиссия {commission_rate}% с депозита ${deposit_amount:.2f} от {user.email}",
+        source=source_id,
+    )
+    db.add(commission)
+
+    # Обновляем статистику реферала
+    referral.first_deposit = min(referral.first_deposit or deposit_amount, deposit_amount)
+    referral.total_deposit = (referral.total_deposit or 0) + deposit_amount
+    referral.commission_earned = (referral.commission_earned or 0) + commission_amount
+
+    # Обновляем статистику реферера
+    referrer.total_commission = (referrer.total_commission or 0) + commission_amount
+    referrer.pending_commission = (referrer.pending_commission or 0) + commission_amount
+    referrer.lifetime_value = (referrer.lifetime_value or 0) + commission_amount
+
+    await db.commit()
+
+    print(f"💰 Комиссия ${commission_amount:.2f} ({commission_rate}%) начислена для {referrer.email} от {user.email}")
+
+    return {
+        "commission": {
+            "id": commission.id,
+            "amount": commission_amount,
+            "rate": commission_rate,
+            "status": commission.status,
+        },
+        "message": "Commission created"
+    }
