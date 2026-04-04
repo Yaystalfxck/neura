@@ -6,13 +6,11 @@ export async function GET(request: NextRequest) {
   try {
     const cookieStore = await request.cookies
     const authToken = cookieStore.get('auth-token')?.value
-    const userEmail = cookieStore.get('user-email')?.value
 
     console.log('🔐 Admin API - Token:', authToken ? 'exists' : 'missing')
-    console.log('🔐 Admin API - Email:', userEmail)
 
-    if (!authToken || !userEmail) {
-      console.log('❌ No auth token or email')
+    if (!authToken) {
+      console.log('❌ No auth token')
       return NextResponse.json(
         { success: false, error: 'Не авторизован' },
         { status: 401 }
