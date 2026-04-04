@@ -24,6 +24,7 @@ function SignalFoundPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [signalData, setSignalData] = useState<any>(null);
+  const [expirationInfo, setExpirationInfo] = useState<any>(null);
   const [isFavorite, setIsFavorite] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -37,9 +38,9 @@ function SignalFoundPage() {
   useEffect(() => {
     if (signalParam) {
       try {
-        // Декодируем base64 (с поддержкой Unicode)
         const decodedSignal = decodeURIComponent(escape(atob(signalParam)));
         const parsed = JSON.parse(decodedSignal);
+        setExpirationInfo({
           expiration: parsed.expiration,
           expiry_minutes: parsed.expiry_minutes,
           expiry_time: parsed.expiry_time

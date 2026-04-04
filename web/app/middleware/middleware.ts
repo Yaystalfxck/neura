@@ -60,12 +60,8 @@ export async function middleware(request: NextRequest) {
         'Cookie': request.headers.get('cookie') || ''
       },
       cache: 'no-store'
-    })
-    
-      status: response.status,
-      ok: response.ok
-    })
-    
+    });
+
     if (!response.ok) {
       
       // Очищаем куки

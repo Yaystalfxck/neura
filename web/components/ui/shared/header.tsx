@@ -85,10 +85,10 @@ export const Header: React.FC<Props> = ({ className }) => {
     }, [isMenuOpen]);
 
     const navLinks = [
-        { id: "home", href: "/", label: t("header.home"), icon: <Home className="w-5 h-5" /> },
-        { id: "about", href: "/about", label: t("header.about"), icon: <Info className="w-5 h-5" /> },
-        { id: "guide", href: "/guide", label: t("header.guide"), icon: <BookOpen className="w-5 h-5" /> },
-        { id: "partners", href: "/partners", label: t("header.partners"), icon: <Handshake className="w-5 h-5" /> }
+        { id: "home", href: "/", label: t("header.home"), icon: <Home className="w-5 h-5" />, external: false },
+        { id: "about", href: "/about", label: t("header.about"), icon: <Info className="w-5 h-5" />, external: false },
+        { id: "guide", href: "/guide", label: t("header.guide"), icon: <BookOpen className="w-5 h-5" />, external: false },
+        { id: "partners", href: "/partners", label: t("header.partners"), icon: <Handshake className="w-5 h-5" />, external: false }
     ];
 
     const protectedLinks = [
