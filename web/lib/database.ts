@@ -45,7 +45,6 @@ export function getPool(): Pool {
       console.error('❌ Unexpected error on idle client', err)
     })
 
-    console.log('✅ PostgreSQL pool created')
   }
   
   return pool
@@ -67,7 +66,6 @@ export async function closeDatabase(): Promise<void> {
   if (pool) {
     await pool.end()
     pool = null
-    console.log('✅ PostgreSQL pool closed')
   }
 }
 
@@ -131,5 +129,4 @@ export async function getDb(): Promise<any> {
 }
 
 export async function initDatabase(): Promise<void> {
-  console.log('ℹ️ Database initialization not needed for frontend - using backend API')
 }

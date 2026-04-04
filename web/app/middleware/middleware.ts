@@ -39,18 +39,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
   
-  console.log('🔐 Проверка доступа к защищенной странице:', path)
   
   // Проверяем наличие session cookie
   const sessionToken = request.cookies.get('neura-session')?.value
   const userEmail = request.cookies.get('user-email')?.value
   
-  console.log('🍪 Куки сессии:', !!sessionToken)
-  console.log('📧 Куки email:', userEmail)
   
   // Если нет ни сессии, ни email - перенаправляем на логин
   if (!sessionToken && !userEmail) {
-    console.log('❌ Нет данных авторизации, перенаправление на /login')
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirect', path)
     return NextResponse.redirect(loginUrl)
@@ -66,13 +62,11 @@ export async function middleware(request: NextRequest) {
       cache: 'no-store'
     })
     
-    console.log('🔍 Результат проверки авторизации:', {
       status: response.status,
       ok: response.ok
     })
     
     if (!response.ok) {
-      console.log('❌ API auth не вернул успех:', response.status)
       
       // Очищаем куки
       const redirectResponse = NextResponse.redirect(
@@ -89,7 +83,6 @@ export async function middleware(request: NextRequest) {
     const data = await response.json()
     
     if (!data.success || !data.user) {
-      console.log('❌ Пользователь не авторизован по данным API:', data)
       
       const redirectResponse = NextResponse.redirect(
         new URL(`/login?redirect=${encodeURIComponent(path)}`, request.url)
@@ -102,7 +95,6 @@ export async function middleware(request: NextRequest) {
       return redirectResponse
     }
     
-    console.log('✅ Пользователь авторизован:', data.user.email)
     
     // Добавляем информацию о пользователе в заголовки
     const requestHeaders = new Headers(request.headers)

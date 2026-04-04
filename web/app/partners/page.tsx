@@ -54,7 +54,6 @@ export default function PartnersPage() {
     try {
       setLoading(true);
 
-      console.log('📊 Loading partner data...')
 
       const [linkRes, statsRes, referralsRes, payoutsRes] = await Promise.all([
         fetch('/api/partner/referral-link'),
@@ -68,11 +67,9 @@ export default function PartnersPage() {
       const referralsData = await referralsRes.json();
       const payoutsData = await payoutsRes.json();
 
-      console.log('📊 Stats response:', statsData)
 
       if (linkData.success) setReferralLink(linkData.link);
       if (statsData.success) {
-        console.log('✅ Setting stats:', statsData.stats)
         setStats(statsData.stats);
       } else {
         console.error('❌ Stats API error:', statsData)

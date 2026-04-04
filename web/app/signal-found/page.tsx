@@ -39,9 +39,7 @@ function SignalFoundPage() {
       try {
         // Декодируем base64 (с поддержкой Unicode)
         const decodedSignal = decodeURIComponent(escape(atob(signalParam)));
-        console.log('📥 Получен сигнал:', decodedSignal.substring(0, 100) + '...');
         const parsed = JSON.parse(decodedSignal);
-        console.log('📊 Данные сигнала:', {
           expiration: parsed.expiration,
           expiry_minutes: parsed.expiry_minutes,
           expiry_time: parsed.expiry_time

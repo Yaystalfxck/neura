@@ -221,7 +221,6 @@ export const RegisterDialog: React.FC<RegisterDialogProps> = ({
         throw new Error(result.error || 'Ошибка регистрации');
       }
       
-      console.log('Регистрация успешна:', result);
       
       setSuccess("✅ Регистрация успешно завершена! Теперь вы можете войти.");
       

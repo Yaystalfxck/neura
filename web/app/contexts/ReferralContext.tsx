@@ -28,11 +28,9 @@ export function ReferralProvider({ children }: { children: ReactNode }) {
     if (ref && !hasTrackedClick && !hasTrackedRef.current && !hasTrackedGlobally) {
       // Проверяем, не отслеживали ли уже этот код
       if (trackedCodes.has(ref)) {
-        console.log('⚠️ Already tracked this code:', ref);
         return;
       }
-      
-      console.log('🔍 Found referral code:', ref);
+
       setReferralCode(ref);
       
       // Помечаем как отслеженный
@@ -69,34 +67,16 @@ export function useReferral() {
 // Функция для отслеживания клика
 async function trackReferralClick(code: string) {
   try {
-    const userAgent = navigator.userAgent;
-    // Используем относительный URL для проксирования через Next.js
-    const apiUrl = '/api/partner/track-click';
-
-    console.log('📡 Sending tracking request to:', apiUrl);
-    console.log('📱 User Agent:', userAgent);
-
-    const response = await fetch(apiUrl, {
+    const response = await fetch('/api/partner/track-click', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        code,
-        user_agent: userAgent,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, user_agent: navigator.userAgent }),
     });
 
-    if (response.ok) {
-      const result = await response.json();
-      console.log('✅ Referral click tracked successfully!', result);
-      console.log('📊 Clicks:', result.clicks, 'Unique:', result.unique_clicks);
-    } else {
-      const errorText = await response.text();
-      console.error('❌ Failed to track referral click:', response.status, errorText);
+    if (!response.ok) {
+      console.error('Failed to track referral click:', response.status);
     }
   } catch (error) {
-    console.error('❌ Error tracking referral click:', error);
-    console.log('💡 This might be a CORS or network issue');
+    console.error('Error tracking referral click:', error);
   }
 }

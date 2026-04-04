@@ -27,14 +27,12 @@ export const BalanceSyncProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     // Если прошло меньше 5 минут - не синхронизируем
     if (timeSinceLastSync < SYNC_INTERVAL && lastSyncTimeRef.current > 0) {
-      console.log(`⏭️ Пропуск синхронизации (прошло ${(timeSinceLastSync / 1000).toFixed(0)}с из 300с)`);
       return;
     }
 
     // Первая синхронизация при входе
     if (!hasSyncedRef.current) {
       hasSyncedRef.current = true;
-      console.log('🔄 Первая синхронизация баланса с Pocket Option API...');
       syncBalance?.();
       lastSyncTimeRef.current = now;
     }
@@ -43,9 +41,8 @@ export const BalanceSyncProvider: React.FC<{ children: React.ReactNode }> = ({ c
     syncTimeoutRef.current = setInterval(() => {
       const currentTime = Date.now();
       const timeSinceLast = currentTime - lastSyncTimeRef.current;
-      
+
       if (timeSinceLast >= SYNC_INTERVAL) {
-        console.log('🔄 Автоматическая синхронизация баланса...');
         syncBalance?.();
         lastSyncTimeRef.current = currentTime;
       }

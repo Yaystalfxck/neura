@@ -91,7 +91,6 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
         return;
       }
 
-      console.log("✅ Успешный вход через AuthContext!");
 
       // Закрываем диалог
       onClose();
@@ -136,14 +135,12 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
         throw new Error(result.error || t("auth.errorSendingCode"));
       }
 
-      console.log(`✅ Код отправлен на ${resetEmail}`);
       setResetStep('code');
       setCountdown(60);
       setResetSuccess(t("auth.codeSentToEmail"));
 
       // Показываем код в консоли для теста (только в разработке)
       if (result.code) {
-        console.log(`${t("auth.testCode")}:`, result.code);
       }
 
     } catch (error) {
@@ -186,7 +183,6 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
         throw new Error(result.error || t("auth.errorCheckingCode"));
       }
 
-      console.log(`✅ Код ${resetCode} принят`);
       setResetStep('new_password');
       setResetSuccess(t("auth.codeVerified"));
 
@@ -235,7 +231,6 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
         throw new Error(result.error || t("auth.errorChangingPassword"));
       }
 
-      console.log(`✅ Пароль изменен для ${resetEmail}`);
       setResetStep('success');
       setResetSuccess(t("auth.recoverySuccess"));
 
@@ -271,7 +266,6 @@ export const LoginDialog: React.FC<LoginDialogProps> = ({
       
       // Показываем код в консоли для теста
       if (result.code) {
-        console.log('📧 Новый код для теста:', result.code);
       }
       
     } catch (error) {

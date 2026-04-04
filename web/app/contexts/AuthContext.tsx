@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('neura_user');
         }
       } catch (serverError) {
-        console.log('Server auth check failed, using client cache');
+        // Using cached client data
       }
       
     } catch (error) {
@@ -149,11 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (!authToken) {
-        console.log('⚠️ No auth token found for balance sync');
         return;
       }
-
-      console.log('🔄 Синхронизация баланса с Pocket Option API...');
 
       const response = await fetch('/api/user/sync-balance', {
         method: 'POST',
@@ -167,9 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
 
         if (data.success && data.balance !== undefined) {
-          console.log(`✅ Баланс синхронизирован: $${data.balance}`);
-          
-          // Обновляем баланс в локальном состоянии
+          // Update local state with synced balance
           if (user) {
             const updatedUser = {
               ...user,
@@ -177,10 +172,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             };
             setUser(updatedUser);
             localStorage.setItem('neura_user', JSON.stringify(updatedUser));
-            
-            if (data.commission) {
-              console.log(`💰 Комиссия получена: $${data.commission.amount} от ${data.commission.referrer}`);
-            }
           }
         }
       } else {
@@ -220,15 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Сохраняем токен в localStorage и в куки
       if (result.token) {
         localStorage.setItem('auth-token', result.token);
-        // Кука уже установлена на сервере, но продублируем для надежности
         document.cookie = `auth-token=${result.token}; path=/; max-age=${60 * 60 * 24 * 7}`;
-        console.log('✅ Токен сохранен:', {
-          inLocalStorage: !!localStorage.getItem('auth-token'),
-          tokenLength: result.token.length,
-          inCookie: document.cookie.includes('auth-token')
-        });
-      } else {
-        console.log('⚠️ Токен не получен от сервера');
       }
 
       return { success: true, user: userWithRole };
@@ -246,8 +229,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Функция выхода
   const logout = async () => {
-    console.log('🔄 Начало выхода...');
-
     try {
       // Получаем токен
       const authToken = localStorage.getItem('auth-token');
@@ -263,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             credentials: 'include',
           });
         } catch (apiError) {
-          console.log('Logout API call failed, continuing client cleanup');
+          // Continue with client cleanup
         }
       }
     } catch (error) {
@@ -292,21 +273,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
       });
 
-      console.log('✅ Клиентское состояние очищено');
-
       // Перенаправляем на главную
       router.push('/');
       router.refresh();
     }
   };
 
-  // Обновление данных пользователя - СОХРАНЕНИЕ В БД
+  // Обновление данных пользователя
   const updateUser = async (userData: Partial<User>): Promise<{ success: boolean; error?: string; user?: User }> => {
     try {
       setIsLoading(true);
-      
-      console.log('📤 Отправка данных профиля на сервер:', userData);
-      
+
       const response = await fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -322,14 +299,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (result.success && result.user) {
-        // Обновляем локальное состояние
         const userWithRole = {
           ...result.user,
           role: result.user.role || user?.role || 'user'
         };
         setUser(userWithRole);
         localStorage.setItem('neura_user', JSON.stringify(userWithRole));
-        console.log('✅ Профиль успешно обновлен:', userWithRole);
         return { success: true, user: userWithRole };
       }
 

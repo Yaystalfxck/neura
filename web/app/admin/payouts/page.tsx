@@ -175,7 +175,6 @@ function AdminPayoutsContent() {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          console.log(`✅ Статус выплаты обновлен на: ${newStatus}`)
           // Обновляем данные
           await loadPayouts();
           if (selectedPayout?.id === payoutId) {

@@ -82,34 +82,25 @@ export default function SupportPage() {
   // Получаем кто онлайн из backend API
   useEffect(() => {
     if (!selectedTicket) {
-      console.log('❌ No selectedTicket for viewers check');
       return;
     }
 
-    console.log('🔍 Starting viewers check for ticket:', selectedTicket.id);
 
     const checkViewers = async () => {
       try {
-        console.log('📡 Fetching viewers...');
         const response = await fetch(`/api/support/tickets/${selectedTicket.id}/viewers`, {
           credentials: 'include',
         });
-        console.log('📥 Response status:', response.status);
         const data = await response.json();
-        console.log('📊 Viewers response:', data);
 
         if (data.success) {
           // Проверяем есть ли поддержка (админ/саппорт) среди зрителей
           const viewersArray = Array.isArray(data.viewers) ? data.viewers : [data.viewers];
-          console.log('👥 All viewers:', viewersArray);
           const hasSupport = viewersArray.some((v: any) => {
-            console.log('  Viewer:', v, 'role:', v?.role, 'is support?', ['admin', 'support'].includes(v?.role));
             return v && ['admin', 'support'].includes(v.role);
           });
-          console.log('🟢 Support online:', hasSupport);
           setIsSupportOnline(hasSupport);
         } else {
-          console.log('❌ Response not success');
           setIsSupportOnline(false);
         }
       } catch (error) {
@@ -137,7 +128,6 @@ export default function SupportPage() {
         const data = await response.json();
         
         if (data.success) {
-          console.log('⌨️ Typing status:', data);
           setIsSupportTyping(data.is_typing || false);
         }
       } catch (error) {
@@ -187,7 +177,6 @@ export default function SupportPage() {
           
           // Обновляем статус тикета если изменился
           if (data.ticket && data.ticket.status !== selectedTicket.status) {
-            console.log('📊 Ticket status changed:', selectedTicket.status, '→', data.ticket.status);
             // Обновляем статус в selectedTicket
             setSelectedTicket({...selectedTicket, status: data.ticket.status});
           }

@@ -70,19 +70,15 @@ export default function ProfilePage() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        console.log('📥 Loading profile...');
         const response = await fetch('/api/profile', {
           credentials: 'include',
         });
         
-        console.log('📡 Response status:', response.status);
         
         const data = await response.json();
-        console.log('📦 Response data:', data);
         
         if (data.success && data.user) {
           const user = data.user;
-          console.log('👤 User data:', user);
           
           setFormData({
             name: user.name || "",
@@ -97,11 +93,6 @@ export default function ProfilePage() {
           // API возвращает строку с датой
           setCreatedAt(user.created_at || user.createdAt || "");
           
-          console.log('✅ Profile loaded:');
-          console.log('   PocketOption ID:', user.pocket_option_id || user.pocketOptionId);
-          console.log('   Created At:', user.created_at || user.createdAt);
-          console.log('   Phone:', user.phone);
-          console.log('   Country:', user.country);
         } else {
           console.error('❌ No user data in response');
         }
@@ -131,7 +122,6 @@ export default function ProfilePage() {
         country: formData.country,
       };
       
-      console.log('Saving profile:', updateData);
       
       const response = await fetch('/api/profile', {
         method: 'PUT',
@@ -141,7 +131,6 @@ export default function ProfilePage() {
       });
       
       const data = await response.json();
-      console.log('Save response:', data);
       
       if (data.success) {
         setSaveSuccess(true);

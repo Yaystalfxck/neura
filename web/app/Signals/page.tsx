@@ -86,7 +86,6 @@ function SearchPage() {
     setError(null);
 
     try {
-      console.log('📡 Отправка запроса:', { market, timeframe, aiType });
 
       const response = await fetch('/api/signal', {
         method: 'POST',
@@ -110,14 +109,12 @@ function SearchPage() {
       }
 
       if (result.success) {
-        console.log('✅ Сигнал получен:', result.signal);
 
         // Обновляем счетчик использованных сигналов
         setSignalsUsed(prev => prev + 1);
         
         // Обновляем баланс из ответа
         if (result.balance !== undefined) {
-          console.log('💰 Обновление баланса:', result.balance);
         }
 
         // Кодируем сигнал в base64 (с поддержкой Unicode)
@@ -135,7 +132,6 @@ function SearchPage() {
           summary: summaryBase64
         }).toString();
 
-        console.log('🔗 Переход на страницу сигнала:', `/signal-found?${queryString}`);
         router.push(`/signal-found?${queryString}`);
       } else {
         setError(result.error || t("signals.findSignalError"));

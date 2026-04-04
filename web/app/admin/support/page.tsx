@@ -80,21 +80,17 @@ export default function AdminSupportPage() {
   // Отслеживаем открытие тикета через backend API
   useEffect(() => {
     if (!selectedTicket || !user) {
-      console.log('❌ No selectedTicket or user for view status');
       return;
     }
 
-    console.log('🔍 Starting view status updates for ticket:', selectedTicket.id, 'user:', user.id);
 
     const updateViewStatus = async () => {
       try {
-        console.log('📡 Sending view status...');
         const response = await fetch(`/api/admin/support/tickets/${selectedTicket.id}/view`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
-        console.log('📥 View status response:', response.status);
       } catch (error) {
         console.error('❌ Error updating view status:', error);
       }
@@ -117,17 +113,13 @@ export default function AdminSupportPage() {
         });
         const data = await response.json();
         
-        console.log('📊 Viewers response:', data);
 
         if (data.success) {
           // Проверяем есть ли обычный пользователь среди зрителей
           const viewersArray = Array.isArray(data.viewers) ? data.viewers : [data.viewers];
-          console.log('👥 All viewers:', viewersArray);
           const hasUser = viewersArray.some((v: any) => {
-            console.log('  Viewer:', v, 'role:', v?.role, 'is user?', v?.role === 'user');
             return v && v.role === 'user';
           });
-          console.log('👤 User online:', hasUser);
           setIsUserOnline(hasUser);
         } else {
           setIsUserOnline(false);
