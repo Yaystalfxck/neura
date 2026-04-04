@@ -83,27 +83,32 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
     
     # Формируем SSID в формате Socket.IO v4 (как в библиотеке)
     # Библиотека сама выберет правильный URL в зависимости от is_demo
-    ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1}}]'
-    
-    print(f"🔌 Подключение к PO API v3...")
+    ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
+
+    print(f"🔌 Подключение к PO API v3 (persistent + keep-alive)...")
     print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
     print(f"   SSID: {ssid[:60]}...")
-    
+
     try:
-        # Создаем клиента из библиотеки (как в примерах PocketOptionAPI)
-        # Библиотека сама выберет URL: demo-api-eu.po.market для демо, api-us-north.po.market для реального
-        _po_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo, enable_logging=False)
-        
-        # Подключаемся (как в examples/get_balance.py)
+        # Создаем клиента с persistent connection и auto-reconnect
+        _po_client = AsyncPocketOptionClient(
+            ssid=ssid,
+            is_demo=is_demo,
+            enable_logging=False,
+            persistent_connection=True,
+            auto_reconnect=True,
+        )
+
+        # Подключаемся с persistent connection
         connected = await _po_client.connect()
-        
+
         if not connected:
             print(f"❌ Не удалось подключиться к PO API v3")
             return None
+
+        print("✅ Подключено (persistent + keep-alive)!")
         
-        print("✅ Подключено!")
-        
-        # Проверяем авторизацию через баланс (как в examples/get_balance.py)
+        # Проверяем авторизацию через баланс
         try:
             balance = await _po_client.get_balance()
             if balance:
@@ -114,7 +119,7 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
         except Exception as e:
             print(f"❌ Ошибка получения баланса: {e}")
             return None
-        
+
         return _po_client
     
     except Exception as e:
