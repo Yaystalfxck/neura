@@ -37,6 +37,9 @@ async def send_email(
         return {"success": True, "message": f"Email отправлен на {to}"}
     
     except Exception as e:
+        import traceback
+        print(f"❌ Email send error: {type(e).__name__}: {e}")
+        traceback.print_exc()
         return {"success": False, "error": str(e)}
 
 
