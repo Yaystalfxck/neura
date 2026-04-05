@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db, close_db
 from app.api import router
 from app.config import get_settings
+from app.po_websocket_service import _pocket_option_ws
 
 settings = get_settings()
 
@@ -47,6 +48,12 @@ async def shutdown_event():
     """Очистка при остановке"""
     await close_db()
     print("📦 Database connection closed")
+    
+    # Закрываем WebSocket соединение с Pocket Option
+    if _pocket_option_ws and _pocket_option_ws.is_connected():
+        print("🔌 Closing Pocket Option WebSocket connection...")
+        await _pocket_option_ws.disconnect()
+        print("✅ Pocket Option WebSocket closed")
 
 
 @app.get("/")

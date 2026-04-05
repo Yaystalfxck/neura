@@ -17,7 +17,7 @@ from app.po_models import (
     SignalDirection, SignalStrength, SignalStatus, SignalResult, StrategyType
 )
 from app.po_strategies import get_strategy, MartingaleStrategy, IndicatorStrategy, MLStrategy
-from app.po_websocket_service import get_pocket_option_websocket, create_pocket_option_websocket
+from app.po_websocket_service import get_pocket_option_websocket, create_pocket_option_websocket, _pocket_option_ws
 from app.tradingview_collector import TradingViewCollector
 from app.po_backtester import PocketOptionBacktester, run_quick_backtest
 
@@ -26,6 +26,104 @@ router = APIRouter(prefix="/api/po", tags=["Pocket Option Signals"])
 
 # === Глобальные переменные для хранения состояния ===
 _active_ws_connections: dict = {}  # user_id -> WebSocket connection
+
+
+@router.get("/ws/subscriptions", response_model=dict)
+async def get_ws_subscriptions(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Получить информацию о активных WebSocket подписках
+    """
+    try:
+        if not _pocket_option_ws or not _pocket_option_ws.is_connected():
+            return {
+                "success": True,
+                "connected": False,
+                "subscriptions": {},
+                "message": "WebSocket не подключен"
+            }
+        
+        subscriptions = _pocket_option_ws.get_active_subscriptions()
+        
+        return {
+            "success": True,
+            "connected": True,
+            "state": _pocket_option_ws.get_state(),
+            "subscriptions": subscriptions,
+            "subscription_count": len(subscriptions)
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка получения подписок: {str(e)}"
+        )
+
+
+@router.post("/ws/unsubscribe-all", response_model=dict)
+async def unsubscribe_all_ws(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Отписаться от всех WebSocket подписок (для отладки)
+    """
+    try:
+        if not _pocket_option_ws or not _pocket_option_ws.is_connected():
+            return {
+                "success": False,
+                "message": "WebSocket не подключен"
+            }
+        
+        count = await _pocket_option_ws.unsubscribe_all()
+        
+        return {
+            "success": True,
+            "unsubscribed_count": count,
+            "message": f"Отписано от {count} подписок"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка отписки: {str(e)}"
+        )
+
+
+@router.post("/ws/reconnect", response_model=dict)
+async def reconnect_ws(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Переподключить WebSocket к Pocket Option (для отладки)
+    """
+    try:
+        global _pocket_option_ws
+        
+        # Закрываем старое соединение
+        if _pocket_option_ws and _pocket_option_ws.is_connected():
+            await _pocket_option_ws.disconnect()
+            _pocket_option_ws = None
+        
+        # Создаем новое соединение
+        ws = get_pocket_option_websocket()
+        connected = await ws.connect()
+        
+        if connected:
+            return {
+                "success": True,
+                "message": "WebSocket переподключен",
+                "state": ws.get_state(),
+                "subscriptions": len(ws.get_active_subscriptions())
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Не удалось переподключить WebSocket"
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка переподключения: {str(e)}"
+        )
 
 
 @router.post("/signal/generate", response_model=dict)

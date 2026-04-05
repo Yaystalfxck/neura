@@ -63,6 +63,9 @@ class PocketOptionWebSocket:
         self.reconnect_delay = 5
         self.max_reconnect_attempts = 5
         
+        # Отслеживаем активные подписки чтобы избежать дублирования
+        self.active_subscriptions: Dict[str, Dict[str, Any]] = {}  # key -> subscription_data
+
         logger.info(f"🔧 PO Config: session_token={self.session_token[:10] if self.session_token else 'None'}..., uid={self.uid}, ws_url={self.ws_url[:50] if self.ws_url else 'default'}...")
 
     async def connect(self) -> bool:
@@ -122,6 +125,12 @@ class PocketOptionWebSocket:
     async def disconnect(self):
         """Отключение от WebSocket"""
         self.running = False
+        
+        # Сначала отписываемся от всех подписок
+        if self.active_subscriptions:
+            logger.info(f"📉 Cancelling {len(self.active_subscriptions)} active subscriptions before disconnect")
+            self.active_subscriptions.clear()
+        
         if self.websocket:
             await self.websocket.close()
             self.websocket = None
@@ -210,6 +219,12 @@ class PocketOptionWebSocket:
             if self.state != self.STATE_AUTHORIZED:
                 logger.error("❌ Не авторизован для подписки")
                 return False
+            
+            # Проверяем есть ли уже такая подписка
+            subscription_key = f"candles:{asset_id}:{timeframe}"
+            if subscription_key in self.active_subscriptions:
+                logger.info(f"⚠️ Подписка уже существует: {subscription_key}")
+                return True  # Уже подписаны
 
             # Формат EIO=4: 42["candles.subscribe", {"asset_id": ..., "timeframe": ...}]
             subscribe_data = ["candles.subscribe", {
@@ -217,8 +232,17 @@ class PocketOptionWebSocket:
                 "timeframe": timeframe,
                 "features": ["ohlc"]
             }]
-            
+
             await self._send_message('42' + json.dumps(subscribe_data))
+            
+            # Запоминаем подписку
+            self.active_subscriptions[subscription_key] = {
+                "type": "candles",
+                "asset_id": asset_id,
+                "timeframe": timeframe,
+                "subscribed_at": datetime.utcnow()
+            }
+            
             logger.info(f"📈 Подписка на свечи: asset={asset_id}, timeframe={timeframe}s")
             return True
 
@@ -240,13 +264,28 @@ class PocketOptionWebSocket:
             if self.state != self.STATE_AUTHORIZED:
                 logger.error("❌ Не авторизован для подписки")
                 return False
+            
+            # Проверяем есть ли уже такая подписка
+            asset_ids_sorted = sorted(asset_ids)
+            subscription_key = f"quotes:{','.join(map(str, asset_ids_sorted))}"
+            if subscription_key in self.active_subscriptions:
+                logger.info(f"⚠️ Подписка уже существует: {subscription_key}")
+                return True  # Уже подписаны
 
             # Формат EIO=4: 42["quotes.subscribe", {"asset_ids": [...]}]
             subscribe_data = ["quotes.subscribe", {
                 "asset_ids": asset_ids
             }]
-            
+
             await self._send_message('42' + json.dumps(subscribe_data))
+            
+            # Запоминаем подписку
+            self.active_subscriptions[subscription_key] = {
+                "type": "quotes",
+                "asset_ids": asset_ids,
+                "subscribed_at": datetime.utcnow()
+            }
+            
             logger.info(f"📊 Подписка на котировки: assets={asset_ids}")
             return True
 
@@ -437,10 +476,10 @@ class PocketOptionWebSocket:
     async def _wait_for_event(self, event_name: str) -> Optional[Dict[str, Any]]:
         """
         Ожидание конкретного события
-        
+
         Args:
             event_name: Имя события
-            
+
         Returns:
             Dict: Данные события
         """
@@ -449,6 +488,65 @@ class PocketOptionWebSocket:
             if message.get("event") == event_name:
                 return message.get("data")
         return None
+    
+    async def unsubscribe_from_candles(self, asset_id: int, timeframe: int = 60) -> bool:
+        """
+        Отписка от свечей
+        
+        Args:
+            asset_id: ID актива
+            timeframe: Таймфрейм в секундах
+            
+        Returns:
+            bool: True если отписка успешна
+        """
+        subscription_key = f"candles:{asset_id}:{timeframe}"
+        if subscription_key in self.active_subscriptions:
+            try:
+                # Отправляем сообщение об отписке
+                unsubscribe_data = ["candles.unsubscribe", {
+                    "asset_id": asset_id,
+                    "timeframe": timeframe
+                }]
+                await self._send_message('42' + json.dumps(unsubscribe_data))
+                
+                del self.active_subscriptions[subscription_key]
+                logger.info(f"📉 Отписка от свечей: asset={asset_id}, timeframe={timeframe}s")
+                return True
+            except Exception as e:
+                logger.error(f"❌ Ошибка отписки: {e}")
+                return False
+        
+        logger.info(f"⚠️ Подписка не найдена: {subscription_key}")
+        return False
+    
+    async def unsubscribe_all(self) -> int:
+        """
+        Отписка от всех активных подписок
+        
+        Returns:
+            int: Количество отписанных подписок
+        """
+        count = len(self.active_subscriptions)
+        logger.info(f"📉 Отписка от всех подписок: {count} активных")
+        
+        # Отписываемся от всех свечей
+        for key, sub in list(self.active_subscriptions.items()):
+            if sub["type"] == "candles":
+                await self.unsubscribe_from_candles(sub["asset_id"], sub["timeframe"])
+        
+        # Для котировок можно добавить отдельный метод отписки
+        self.active_subscriptions.clear()
+        return count
+    
+    def get_active_subscriptions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Получить все активные подписки
+        
+        Returns:
+            Dict: Словарь с активными подписками
+        """
+        return self.active_subscriptions.copy()
 
     async def _handle_reconnect(self):
         """Переподключение при разрыве соединения"""
