@@ -7,6 +7,7 @@ import json
 import os
 import asyncio
 import random
+import websockets
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -15,7 +16,6 @@ from app.balance_utils import get_user_balance
 from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
-from pocketoptionapi_async.client import AsyncPocketOptionClient
 from app.po_strategies_advanced import advanced_signal_strategy
 
 settings = get_settings()
@@ -40,22 +40,193 @@ def get_next_limit_balance(current_balance: float) -> float:
         return 25
 
 
-# Глобальный PO клиент
-_po_client: Optional[AsyncPocketOptionClient] = None
-_po_client_demo: Optional[AsyncPocketOptionClient] = None
+class POWebSocketClient:
+    """PO WebSocket клиент на прямых websockets (работает на сервере)"""
 
-async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
+    def __init__(self, is_demo: bool):
+        self.is_demo = is_demo
+        self.ws = None
+        self._ws_url = settings.POCKETOPTION_WS_URL_DEMO if is_demo else settings.POCKETOPTION_WS_URL
+        self._sid = None
+        self._balance = None
+        self._connected = False
+
+    async def connect(self) -> bool:
+        try:
+            # Прямое подключение без SSL context (как в рабочем тесте)
+            self.ws = await websockets.connect(self._ws_url, ping_interval=None)
+
+            # 1. Engine.IO open packet: 0{"sid":"...","upgrades":[],...}
+            raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
+            msg = self._decode(raw)
+            if not msg.startswith('0') or 'sid' not in msg:
+                print(f"   Ожидание open, получено: {msg[:80]}")
+                return False
+
+            # 2. Socket.IO connect: 40
+            await self.ws.send('40')
+            raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
+            msg = self._decode(raw)
+            if not msg.startswith('40'):
+                print(f"   Ожидание 40, получено: {msg[:80]}")
+                return False
+            # Парсим sid
+            try:
+                sid_data = json.loads(msg[2:])
+                self._sid = sid_data.get('sid')
+            except:
+                pass
+
+            # 3. Auth
+            session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO if self.is_demo else settings.POCKETOPTION_SESSION_TOKEN
+            uid = settings.POCKETOPTION_UID
+            auth_msg = f'42["auth",{{"session":"{session_token}","isDemo":{1 if self.is_demo else 0},"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
+            await self.ws.send(auth_msg)
+
+            # Ждём auth response (может быть 451 с placeholder + binary)
+            await self._read_messages(count=3, timeout=5)
+
+            self._connected = True
+            return True
+
+        except Exception as e:
+            print(f"❌ Ошибка подключения: {e}")
+            return False
+
+    async def disconnect(self):
+        self._connected = False
+        if self.ws:
+            try:
+                await self.ws.close()
+            except:
+                pass
+            self.ws = None
+
+    @property
+    def connected(self):
+        return self._connected and self.ws is not None
+
+    def _decode(self, msg):
+        if isinstance(msg, bytes):
+            return msg.decode('utf-8', errors='ignore')
+        return str(msg)
+
+    async def _read_messages(self, count: int = 5, timeout: float = 3.0) -> list:
+        """Прочитать несколько сообщений, вернуть все"""
+        messages = []
+        for _ in range(count):
+            try:
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=timeout)
+                messages.append(self._decode(raw))
+            except asyncio.TimeoutError:
+                break
+        return messages
+
+    async def _send_and_read(self, msg: str, wait_count: int = 10, timeout: float = 5.0) -> list:
+        """Отправить сообщение и прочитать ответ"""
+        await self.ws.send(msg)
+        messages = []
+        for _ in range(wait_count):
+            try:
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=timeout)
+                msg_str = self._decode(raw)
+                messages.append(msg_str)
+                # Если получили полныйный JSON ответ — выходим
+                if msg_str.startswith('42') or (msg_str.startswith('45') and ']' in msg_str and not '_placeholder' in msg_str):
+                    break
+            except asyncio.TimeoutError:
+                break
+        return messages
+
+    async def get_balance(self):
+        if not self.connected:
+            return None
+        try:
+            msgs = await self._send_and_read('42["get-balance",{}]', wait_count=15, timeout=5)
+            for m in msgs:
+                # Ищем balance в сообщениях
+                if '"balance"' in m or "'balance'" in m:
+                    # Попробуем распарсить
+                    try:
+                        start = m.index('[')
+                        end = m.rindex(']') + 1
+                        data = json.loads(m[start:end])
+                        if isinstance(data, list) and len(data) > 1:
+                            if isinstance(data[1], dict):
+                                bal = data[1].get('balance')
+                                if bal is not None:
+                                    self._balance = bal
+                                    return bal
+                            elif isinstance(data[1], (int, float)):
+                                self._balance = data[1]
+                                return data[1]
+                    except:
+                        pass
+        except Exception as e:
+            print(f"⚠️ Ошибка получения баланса: {e}")
+        return None
+
+    async def get_candles(self, asset: str, timeframe: int = 60, count: int = 100):
+        if not self.connected:
+            return None
+        try:
+            msg = f'42["get-candles",{{"asset":"{asset}","timeframe":{timeframe},"count":{count}}}]'
+            msgs = await self._send_and_read(msg, wait_count=20, timeout=5)
+
+            for m in msgs:
+                if '"open"' in m and '"close"' in m:
+                    try:
+                        # Ищем массив с данными
+                        start = m.index('[')
+                        end = m.rindex(']') + 1
+                        data = json.loads(m[start:end])
+                        if isinstance(data, list):
+                            if len(data) > 0 and isinstance(data[0], dict):
+                                return data
+                            elif len(data) > 1 and isinstance(data[1], list):
+                                return data[1]
+                    except:
+                        pass
+        except Exception as e:
+            print(f"⚠️ Ошибка получения свечей для {asset}: {e}")
+        return None
+
+    async def get_payout(self, asset: str):
+        if not self.connected:
+            return None
+        try:
+            msgs = await self._send_and_read(f'42["get-payout",{{"asset":"{asset}"}}]', wait_count=10, timeout=5)
+            for m in msgs:
+                if '"payout"' in m or "'payout'" in m:
+                    try:
+                        start = m.index('[')
+                        end = m.rindex(']') + 1
+                        data = json.loads(m[start:end])
+                        if isinstance(data, list) and len(data) > 1:
+                            if isinstance(data[1], dict):
+                                return data[1].get('payout')
+                    except:
+                        pass
+        except:
+            pass
+        return None
+
+
+# Глобальный PO клиент
+_po_client: Optional[POWebSocketClient] = None
+_po_client_demo: Optional[POWebSocketClient] = None
+
+async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optional[POWebSocketClient]:
+    """Получение PO клиента (прямые websockets)"""
     global _po_client, _po_client_demo
 
     target = _po_client_demo if is_demo else _po_client
 
-    # Переиспользуем существующий клиент
-    if not refresh and target is not None:
+    if not refresh and target is not None and target.connected:
         try:
             balance = await target.get_balance()
-            if balance:
-                bal_val = getattr(balance, 'balance', balance)
-                print(f"♻️ PO клиент переиспользован (баланс: ${bal_val})")
+            if balance is not None:
+                print(f"♻️ PO клиент переиспользован (баланс: ${balance})")
                 return target
         except Exception:
             print("⚠️ Старый клиент мёртв, переподключаемся...")
@@ -80,18 +251,12 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
             pass
         _po_client = None
 
-    ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
-
     print(f"🔌 Подключение к PO API v3...")
     print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
-    print(f"   SSID: {ssid[:60]}...")
+    print(f"   SSID: session={session_token[:30]}... uid={settings.POCKETOPTION_UID}")
 
     try:
-        client = AsyncPocketOptionClient(
-            ssid=ssid,
-            is_demo=is_demo,
-            enable_logging=False,
-        )
+        client = POWebSocketClient(is_demo=is_demo)
 
         if is_demo:
             _po_client_demo = client
@@ -107,11 +272,10 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
         print("✅ Подключено!")
 
         balance = await client.get_balance()
-        if balance:
-            bal_val = getattr(balance, 'balance', balance)
-            print(f"✅ PO API v3 готов! Баланс: ${bal_val}")
+        if balance is not None:
+            print(f"✅ PO API v3 готов! Баланс: ${balance}")
         else:
-            print("⚠️ Не удалось получить баланс")
+            print("⚠️ Не удалось получить баланс (подключение есть)")
 
         return client
 
@@ -128,15 +292,13 @@ async def po_keepalive_loop():
     while True:
         try:
             await asyncio.sleep(30)
-            if _po_client_demo is not None:
+            if _po_client_demo is not None and _po_client_demo.connected:
                 try:
                     balance = await _po_client_demo.get_balance()
-                    if balance:
-                        bal_val = getattr(balance, 'balance', balance)
-                        print(f"💓 PO keep-alive OK (баланс: ${bal_val})")
+                    if balance is not None:
+                        print(f"💓 PO keep-alive OK (баланс: ${balance})")
                     else:
                         print("⚠️ PO keep-alive: баланс не доступен")
-                        _po_client_demo = None
                 except Exception as e:
                     print(f"⚠️ PO keep-alive ошибка: {e}")
                     _po_client_demo = None
