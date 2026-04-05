@@ -117,18 +117,36 @@ class POWebSocketClient:
                 pass
             self.ws = None
 
+    def _decode_msg(self, msg):
+        """Декодирование сообщения (может быть bytes)"""
+        if isinstance(msg, bytes):
+            return msg.decode('utf-8', errors='ignore')
+        return str(msg)
+
     async def get_balance(self):
         if not self.connected or not self.ws:
             return None
         try:
             await self.ws.send('42["get-balance",{}]')
-            msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
-            # Парсим ответ: 42["balance",{"balance":50000,"currency":"USD"}]
-            if 'balance' in msg:
-                data = json.loads(msg[2:])
-                if len(data) > 1:
-                    bal_data = data[1]
-                    return bal_data.get('balance', 0)
+            for _ in range(10):  # пробуем несколько сообщений
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
+                msg = self._decode_msg(raw)
+                if 'balance' in msg and msg.startswith('4'):
+                    # Парсим: 42["balance",{"balance":50000,...}] или 451-["balance",{...placeholder...}]
+                    if 'balance' in msg:
+                        # Проверяем нет ли placeholder (бинарные данные)
+                        if '_placeholder' in msg:
+                            # Следующее сообщение — бинарные данные
+                            raw2 = await asyncio.wait_for(self.ws.recv(), timeout=10)
+                            msg = self._decode_msg(raw2)
+                        # Извлекаем JSON
+                        start = msg.index('[')
+                        end = msg.rindex(']') + 1
+                        data = json.loads(msg[start:end])
+                        if len(data) > 1 and isinstance(data[1], dict):
+                            return data[1].get('balance', 0)
+                        elif isinstance(data[1], (int, float)):
+                            return data[1]
         except Exception as e:
             print(f"⚠️ Ошибка получения баланса: {e}")
             return None
@@ -142,13 +160,24 @@ class POWebSocketClient:
             await self.ws.send(msg)
 
             candles = []
-            for _ in range(5):  # ждём максимум 5 сообщений
+            for _ in range(15):  # ждём максимум 15 сообщений
                 raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
-                if 'get-candles' in raw or asset.lower() in raw.lower():
-                    data = json.loads(raw[2:])
-                    if len(data) > 1 and isinstance(data[1], list):
-                        candles = data[1]
-                        break
+                msg_str = self._decode_msg(raw)
+                # Проверяем содержит ли сообщение свечи (массив объектов)
+                if 'open' in msg_str and 'close' in msg_str and ('candle' in msg_str or asset.lower().replace('_', '').replace('otc', '') in msg_str.lower()):
+                    # Ищем массив с данными свечей
+                    try:
+                        start = msg_str.index('[')
+                        end = msg_str.rindex(']') + 1
+                        data = json.loads(msg_str[start:end])
+                        if isinstance(data, list) and len(data) > 0:
+                            if isinstance(data[0], dict):
+                                candles = data
+                            elif len(data) > 1 and isinstance(data[1], list):
+                                candles = data[1]
+                            break
+                    except (json.JSONDecodeError, ValueError):
+                        continue
             return candles
         except Exception as e:
             print(f"⚠️ Ошибка получения свечей для {asset}: {e}")
