@@ -22,6 +22,25 @@ from app.po_strategies_advanced import advanced_signal_strategy
 
 settings = get_settings()
 
+# Import select as sa_select for compatibility
+sa_select = select
+
+router = APIRouter(prefix="/api", tags=["Signals"])
+
+
+def get_next_limit_balance(current_balance: float) -> float:
+    """Возвращает необходимый баланс для следующего лимита сигналов"""
+    if current_balance >= 200:
+        return 200  # Максимум достигнут
+    elif current_balance >= 100:
+        return 200
+    elif current_balance >= 50:
+        return 100
+    elif current_balance >= 25:
+        return 50
+    else:
+        return 25
+
 
 class POWebSocketClient:
     """Простой PocketOption WebSocket клиент на прямых вебсокетах"""
