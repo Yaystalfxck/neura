@@ -43,6 +43,46 @@ def get_next_limit_balance(current_balance: float) -> float:
 # Глобальный PO клиент
 _po_client: Optional[AsyncPocketOptionClient] = None
 _po_client_demo: Optional[AsyncPocketOptionClient] = None
+_po_keepalive_task = None
+
+async def po_keepalive_loop():
+    """Фоновый цикл для поддержания WebSocket соединения живым"""
+    global _po_client_demo
+    while True:
+        try:
+            await asyncio.sleep(30)  # пинг каждые 30 сек
+            if _po_client_demo is not None:
+                try:
+                    balance = await _po_client_demo.get_balance()
+                    if balance:
+                        print(f"💓 PO WebSocket keep-alive OK (баланс: ${getattr(balance, 'balance', balance)})")
+                    else:
+                        print("⚠️ PO keep-alive: баланс не доступен")
+                except Exception as e:
+                    print(f"⚠️ PO keep-alive ошибка: {e}")
+                    _po_client_demo = None
+                    print("🔄 Переподключение PO WebSocket...")
+                    try:
+                        client = await get_po_client(refresh=True, is_demo=True)
+                        if client:
+                            print("✅ PO WebSocket переподключён")
+                        else:
+                            print("❌ Не удалось переподключить PO WebSocket")
+                    except Exception as e2:
+                        print(f"❌ Ошибка переподключения: {e2}")
+        except asyncio.CancelledError:
+            print("🛑 PO keep-alive остановлен")
+            break
+        except Exception as e:
+            print(f"⚠️ PO keep-alive ошибка цикла: {e}")
+
+async def start_po_keepalive():
+    """Запуск фонового keep-alive цикла"""
+    global _po_keepalive_task
+    if _po_keepalive_task is None or _po_keepalive_task.done():
+        _po_keepalive_task = asyncio.create_task(po_keepalive_loop())
+        print("🎧 PO WebSocket keep-alive запущен")
+    return _po_keepalive_task
 
 async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
     """Получение PO клиента v3 (AsyncPocketOptionClient из библиотеки)"""
@@ -80,37 +120,56 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
         except:
             pass
         _po_client = None
-    
+
     # Формируем SSID в формате Socket.IO v4 (как в библиотеке)
     # Библиотека сама выберет правильный URL в зависимости от is_demo
-    ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
+    # Если токен уже в полном формате (начинается с 42["auth"), используем как есть
+    if session_token.startswith('42["auth'):
+        ssid = session_token
+    else:
+        ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
 
     print(f"🔌 Подключение к PO API v3 (persistent + keep-alive)...")
     print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
     print(f"   SSID: {ssid[:60]}...")
 
     try:
-        # Создаем клиента с persistent connection и auto-reconnect
-        _po_client = AsyncPocketOptionClient(
+        # Создаем клиента (как в тесте, который работает)
+        client = AsyncPocketOptionClient(
             ssid=ssid,
             is_demo=is_demo,
             enable_logging=False,
-            persistent_connection=True,
-            auto_reconnect=True,
         )
 
-        # Подключаемся с persistent connection
-        connected = await _po_client.connect()
+        # Сохраняем в правильную глобальную переменную
+        if is_demo:
+            _po_client_demo = client
+        else:
+            _po_client = client
+
+        # Подключаемся
+        try:
+            connected = await client.connect()
+        except Exception as connect_err:
+            print(f"❌ Ошибка при connect(): {connect_err}")
+            import traceback
+            traceback.print_exc()
+            connected = False
 
         if not connected:
             print(f"❌ Не удалось подключиться к PO API v3")
+            print(f"   Проверка: session_token={session_token[:30]}... is_demo={is_demo}")
             return None
 
         print("✅ Подключено (persistent + keep-alive)!")
-        
+
+        # Запускаем фоновый keep-alive для демо
+        if is_demo:
+            await start_po_keepalive()
+
         # Проверяем авторизацию через баланс
         try:
-            balance = await _po_client.get_balance()
+            balance = await client.get_balance()
             if balance:
                 print(f"✅ PO API v3 готов! Баланс: ${balance}")
             else:
@@ -120,7 +179,7 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
             print(f"❌ Ошибка получения баланса: {e}")
             return None
 
-        return _po_client
+        return client
     
     except Exception as e:
         print(f"❌ Ошибка PO клиента v3: {e}")
