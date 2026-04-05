@@ -53,8 +53,11 @@ class POWebSocketClient:
 
     async def connect(self) -> bool:
         try:
-            # Прямое подключение без SSL context (как в рабочем тесте)
-            self.ws = await websockets.connect(self._ws_url, ping_interval=None)
+            extra_headers = {
+                "Origin": "https://pocketoption.com",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            }
+            self.ws = await websockets.connect(self._ws_url, ping_interval=None, extra_headers=extra_headers)
 
             # 1. Engine.IO open packet: 0{"sid":"...","upgrades":[],...}
             raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
