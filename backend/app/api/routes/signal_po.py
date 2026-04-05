@@ -57,27 +57,26 @@ class POWebSocketClient:
 
     async def connect(self) -> bool:
         try:
-            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
+            # wss:// уже шифрует, ssl не указываем явно
+            self.ws = await websockets.connect(self._ws_url, ping_interval=None)
 
-            self.ws = await websockets.connect(self._ws_url, ssl=ssl_ctx, ping_interval=None, close_timeout=5)
-
-            # Получаем SID
-            msg = await self.ws.recv()
+            # Получаем Engine.IO open: 0{"sid":"...","upgrades":[],...}
+            msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
             if not msg.startswith('0{'):
+                print(f"   Ожидание 0{{, получено: {msg[:100]}")
                 return False
 
-            # Отправляем init (40)
+            # Отправляем Socket.IO connect: 40
             await self.ws.send('40')
-            msg = await self.ws.recv()
+            msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
 
             # Auth
             auth_msg = f'42["auth",{{"session":"{self.session_token}","isDemo":{1 if self.is_demo else 0},"uid":{self.uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
             await self.ws.send(auth_msg)
 
-            # Ждём ответ
+            # Ждём ответ auth
             msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
+            print(f"   Auth ответ: {msg[:100]}")
 
             self.connected = True
             return True
