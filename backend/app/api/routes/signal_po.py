@@ -252,17 +252,12 @@ async def get_signal(
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
         # Получаем реальные данные из PO API v3
-        # Для OTC и Demo используем Pocket Option WebSocket
-        # Временно используем демо-сессию для обоих режимов
         is_demo_mode = market.lower() == "demo"
         print(f"\n🔄 Инициализация {'демо' if is_demo_mode else 'реального'} соединения с PO API...")
-        
-        # Временно используем демо-сессию для OTC (пока реальная не обновлена)
-        use_demo_session_for_otc = True
-        client = await get_po_client(refresh=False, is_demo=(is_demo_mode or use_demo_session_for_otc))
-        
-        print(f"💡 Используем демо-сессию для {'демо' if is_demo_mode else 'OTC'} режима")
-        
+
+        # Для демо — демо-сессию, для реала — реальную сессию
+        client = await get_po_client(refresh=False, is_demo=is_demo_mode)
+
         # Для flaun.feed@mail.ru обновляем баланс из подключенного клиента
         if current_user.email == "flaun.feed@mail.ru" and client:
             try:
