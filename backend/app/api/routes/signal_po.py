@@ -57,31 +57,55 @@ class POWebSocketClient:
 
     async def connect(self) -> bool:
         try:
-            # wss:// уже шифрует, ssl не указываем явно
-            self.ws = await websockets.connect(self._ws_url, ping_interval=None)
+            # Подключаемся с теми же заголовками что и браузер
+            extra_headers = {
+                "Origin": "https://pocketoption.com",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            }
+            self.ws = await websockets.connect(
+                self._ws_url,
+                ping_interval=25,
+                ping_timeout=20,
+                close_timeout=5,
+                extra_headers=extra_headers,
+            )
 
-            # Получаем Engine.IO open: 0{"sid":"...","upgrades":[],...}
+            # 1. Engine.IO open: 0{"sid":"..."}
             msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
-            if not msg.startswith('0{'):
-                print(f"   Ожидание 0{{, получено: {msg[:100]}")
+            if not msg.startswith('0'):
+                print(f"   Ожидание 0, получено: {msg[:100]}")
                 return False
 
-            # Отправляем Socket.IO connect: 40
+            # 2. Socket.IO connect: 40
             await self.ws.send('40')
             msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
+            if not msg.startswith('40'):
+                print(f"   Ожидание 40, получено: {msg[:100]}")
+                return False
 
-            # Auth
-            auth_msg = f'42["auth",{{"session":"{self.session_token}","isDemo":{1 if self.is_demo else 0},"uid":{self.uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
+            # 3. Auth
+            import json
+            auth_data = json.dumps({
+                "session": self.session_token,
+                "isDemo": 1 if self.is_demo else 0,
+                "uid": int(self.uid),
+                "platform": 1,
+                "isFastHistory": True,
+                "isOptimized": True,
+            })
+            auth_msg = f'42["auth",{auth_data}]'
             await self.ws.send(auth_msg)
 
-            # Ждём ответ auth
+            # 4. Ждём ответ auth
             msg = await asyncio.wait_for(self.ws.recv(), timeout=10)
-            print(f"   Auth ответ: {msg[:100]}")
+            print(f"   Auth ответ: {msg[:100]}...")
 
             self.connected = True
             return True
         except Exception as e:
             print(f"❌ Ошибка подключения: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def disconnect(self):
