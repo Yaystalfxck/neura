@@ -59,10 +59,19 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
                 print(f"♻️ PO клиент переиспользован (баланс: ${bal_val})")
                 return target
         except Exception:
-            print("⚠️ Старый клиент мёртв, переподключаемся...")
-            if is_demo:
+            print("⚠️ Старый клиент мёртв, закрываем и переподключаемся...")
+            # Закрываем мёртвый клиент перед тем как ставить None
+            if is_demo and _po_client_demo is not None:
+                try:
+                    await _po_client_demo.disconnect()
+                except:
+                    pass
                 _po_client_demo = None
-            else:
+            elif not is_demo and _po_client is not None:
+                try:
+                    await _po_client.disconnect()
+                except:
+                    pass
                 _po_client = None
 
     session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO if is_demo else settings.POCKETOPTION_SESSION_TOKEN
