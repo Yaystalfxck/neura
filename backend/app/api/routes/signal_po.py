@@ -49,7 +49,7 @@ class POConnectionPool:
     Пул соединений с PocketOption — как в библиотеке ChipaDevTeam/PocketOptionAPI
     
     Один пул на всё приложение, переиспользуется всеми запросами.
-    Автоматический reconnect + keepalive.
+    Автоматический reconnect + keepalive пинг каждые 20 секунд.
     """
     
     def __init__(self):
@@ -57,6 +57,64 @@ class POConnectionPool:
         self._client_demo: Optional[AsyncPocketOptionClient] = None
         self._is_demo = False
         self._lock = asyncio.Lock()
+        self._keepalive_task: Optional[asyncio.Task] = None
+    
+    async def start_keepalive(self):
+        """
+        Запустить фоновый keepalive цикл — как в PocketOptionAPI
+        Пинг каждые 20 секунд чтобы соединение не отключалось
+        """
+        if self._keepalive_task and not self._keepalive_task.done():
+            print("⚠️ Keepalive уже запущен")
+            return
+        
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        print("✅ Keepalive цикл запущен (пинг каждые 20 сек)")
+    
+    async def _keepalive_loop(self):
+        """
+        Фоновый цикл keepalive — как в PocketOptionAPI
+        Каждые 20 секунд пингует оба клиента
+        """
+        while True:
+            try:
+                await asyncio.sleep(20)  # Пинг каждые 20 сек
+                
+                # Пингуем REAL клиент
+                if self._client is not None:
+                    try:
+                        balance = await self._client.get_balance()
+                        if balance:
+                            bal_val = getattr(balance, 'balance', balance)
+                            print(f"💓 PO keepalive REAL OK (баланс: ${bal_val})")
+                        else:
+                            print("⚠️ PO keepalive REAL: баланс не доступен")
+                    except Exception as e:
+                        print(f"⚠️ PO keepalive REAL ошибка: {e}")
+                        # Помечаем клиента как мёртвого
+                        await self._safe_disconnect(self._client, "REAL")
+                        self._client = None
+                
+                # Пингуем DEMO клиент
+                if self._client_demo is not None:
+                    try:
+                        balance = await self._client_demo.get_balance()
+                        if balance:
+                            bal_val = getattr(balance, 'balance', balance)
+                            print(f"💓 PO keepalive DEMO OK (баланс: ${bal_val})")
+                        else:
+                            print("⚠️ PO keepalive DEMO: баланс не доступен")
+                    except Exception as e:
+                        print(f"⚠️ PO keepalive DEMO ошибка: {e}")
+                        # Помечаем клиента как мёртвого
+                        await self._safe_disconnect(self._client_demo, "DEMO")
+                        self._client_demo = None
+                        
+            except asyncio.CancelledError:
+                print("🔌 Keepalive цикл остановлен")
+                break
+            except Exception as e:
+                print(f"⚠️ PO keepalive ошибка цикла: {e}")
     
     async def get_client(self, is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
         """
@@ -147,6 +205,16 @@ class POConnectionPool:
     async def disconnect_all(self):
         """Закрыть все соединения в пуле"""
         print("\n🔌 Закрываю все соединения пула...")
+        
+        # Останавливаем keepalive
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            print("✅ Keepalive цикл остановлен")
+        
         await self._safe_disconnect(self._client, "REAL")
         await self._safe_disconnect(self._client_demo, "DEMO")
         self._client = None

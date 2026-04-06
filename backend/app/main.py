@@ -4,7 +4,7 @@ from app.database import init_db, close_db
 from app.api import router
 from app.config import get_settings
 from app.po_websocket_service import _pocket_option_ws
-from app.api.routes.signal_po import close_all_po_connections
+from app.api.routes.signal_po import close_all_po_connections, _po_pool
 
 settings = get_settings()
 
@@ -42,6 +42,9 @@ async def startup_event():
     await init_db()
     print("✅ Database initialized")
     print(f"🚀 Neura API running on {settings.API_URL}")
+    
+    # Запускаем keepalive для PO Connection Pool
+    await _po_pool.start_keepalive()
 
 
 @app.on_event("shutdown")
