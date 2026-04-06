@@ -80,7 +80,7 @@ class POConnectionPool:
             try:
                 await asyncio.sleep(20)  # Пинг каждые 20 сек
                 
-                # Пингуем REAL клиент
+                # Пингуем REAL клиент — НЕ отключаем сразу при ошибке
                 if self._client is not None:
                     try:
                         balance = await self._client.get_balance()
@@ -88,14 +88,14 @@ class POConnectionPool:
                             bal_val = getattr(balance, 'balance', balance)
                             print(f"💓 PO keepalive REAL OK (баланс: ${bal_val})")
                         else:
-                            print("⚠️ PO keepalive REAL: баланс не доступен")
+                            # Не отключаем — просто логируем
+                            print("⚠️ PO keepalive REAL: баланс не доступен (пропускаем)")
                     except Exception as e:
-                        print(f"⚠️ PO keepalive REAL ошибка: {e}")
-                        # Помечаем клиента как мёртвого
-                        await self._safe_disconnect(self._client, "REAL")
-                        self._client = None
+                        # НЕ отключаем при каждой ошибке!
+                        # Только логируем — следующий запрос проверит клиент и пересоздаст если нужно
+                        print(f"⚠️ PO keepalive REAL ошибка: {e} (не отключаем)")
                 
-                # Пингуем DEMO клиент
+                # Пингуем DEMO клиент — НЕ отключаем сразу при ошибке
                 if self._client_demo is not None:
                     try:
                         balance = await self._client_demo.get_balance()
@@ -103,12 +103,9 @@ class POConnectionPool:
                             bal_val = getattr(balance, 'balance', balance)
                             print(f"💓 PO keepalive DEMO OK (баланс: ${bal_val})")
                         else:
-                            print("⚠️ PO keepalive DEMO: баланс не доступен")
+                            print("⚠️ PO keepalive DEMO: баланс не доступен (пропускаем)")
                     except Exception as e:
-                        print(f"⚠️ PO keepalive DEMO ошибка: {e}")
-                        # Помечаем клиента как мёртвого
-                        await self._safe_disconnect(self._client_demo, "DEMO")
-                        self._client_demo = None
+                        print(f"⚠️ PO keepalive DEMO ошибка: {e} (не отключаем)")
                         
             except asyncio.CancelledError:
                 print("🔌 Keepalive цикл остановлен")
