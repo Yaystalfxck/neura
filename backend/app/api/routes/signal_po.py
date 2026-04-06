@@ -40,59 +40,18 @@ def get_next_limit_balance(current_balance: float) -> float:
         return 25
 
 
-# Глобальный PO клиент
-_po_client: Optional[AsyncPocketOptionClient] = None
-_po_client_demo: Optional[AsyncPocketOptionClient] = None
-
-async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
-    """Получение PO клиента через библиотеку pocketoptionapi_async"""
-    global _po_client, _po_client_demo
-
-    target = _po_client_demo if is_demo else _po_client
-
-    # Переиспользуем существующий клиент
-    if not refresh and target is not None:
-        try:
-            balance = await target.get_balance()
-            if balance:
-                bal_val = getattr(balance, 'balance', balance)
-                print(f"♻️ PO клиент переиспользован (баланс: ${bal_val})")
-                return target
-        except Exception:
-            print("⚠️ Старый клиент мёртв, закрываем и переподключаемся...")
-            # Закрываем мёртвый клиент перед тем как ставить None
-            if is_demo and _po_client_demo is not None:
-                try:
-                    await _po_client_demo.disconnect()
-                except:
-                    pass
-                _po_client_demo = None
-            elif not is_demo and _po_client is not None:
-                try:
-                    await _po_client.disconnect()
-                except:
-                    pass
-                _po_client = None
-
+async def create_po_client(is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
+    """
+    Создание НОВОГО PO клиента для каждого запроса
+    
+    ВАЖНО: Не используем global singleton — каждый запрос получает свой клиент!
+    Это предотвращает конфликты при множественных одновременных запросах.
+    """
     session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO if is_demo else settings.POCKETOPTION_SESSION_TOKEN
-
-    # Закрываем старое соединение
-    if is_demo and _po_client_demo is not None:
-        try:
-            await _po_client_demo.disconnect()
-        except:
-            pass
-        _po_client_demo = None
-    elif not is_demo and _po_client is not None:
-        try:
-            await _po_client.disconnect()
-        except:
-            pass
-        _po_client = None
 
     ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
 
-    print(f"🔌 Подключение к PO API v3...")
+    print(f"🔌 Создание нового PO клиента...")
     print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
     print(f"   SSID: {ssid[:60]}...")
 
@@ -103,64 +62,38 @@ async def get_po_client(refresh: bool = False, is_demo: bool = False) -> Optiona
             enable_logging=False,
         )
 
-        if is_demo:
-            _po_client_demo = client
-        else:
-            _po_client = client
-
         connected = await client.connect()
 
         if not connected:
             print(f"❌ Не удалось подключиться к PO API v3")
             return None
 
-        print("✅ Подключено!")
+        print("✅ PO клиент подключен!")
 
         balance = await client.get_balance()
         if balance:
             bal_val = getattr(balance, 'balance', balance)
-            print(f"✅ PO API v3 готов! Баланс: ${bal_val}")
+            print(f"✅ PO клиент готов! Баланс: ${bal_val}")
         else:
             print("⚠️ Не удалось получить баланс")
 
         return client
 
     except Exception as e:
-        print(f"❌ Ошибка PO клиента: {e}")
+        print(f"❌ Ошибка создания PO клиента: {e}")
         import traceback
         traceback.print_exc()
         return None
-_po_keepalive_task = None
 
-async def po_keepalive_loop():
-    """Фоновый цикл для поддержания WebSocket соединения живым"""
-    global _po_client_demo
-    while True:
+
+async def close_po_client(client: AsyncPocketOptionClient, label: str = "PO"):
+    """Безопасное закрытие PO клиента"""
+    if client:
         try:
-            await asyncio.sleep(30)
-            if _po_client_demo is not None:
-                try:
-                    balance = await _po_client_demo.get_balance()
-                    if balance:
-                        bal_val = getattr(balance, 'balance', balance)
-                        print(f"💓 PO keep-alive OK (баланс: ${bal_val})")
-                    else:
-                        print("⚠️ PO keep-alive: баланс не доступен")
-                        _po_client_demo = None
-                except Exception as e:
-                    print(f"⚠️ PO keep-alive ошибка: {e}")
-                    _po_client_demo = None
-                    print("🔄 Переподключение...")
-                    try:
-                        client = await get_po_client(refresh=True, is_demo=True)
-                        if client:
-                            print("✅ PO переподключён")
-                    except Exception as e2:
-                        print(f"❌ Ошибка переподключения: {e2}")
-        except asyncio.CancelledError:
-            break
+            await client.disconnect()
+            print(f"✅ {label} клиент отключен")
         except Exception as e:
-            print(f"⚠️ PO keep-alive ошибка цикла: {e}")
+            print(f"⚠️ Ошибка закрытия {label}: {e}")
 
 
 @router.post("/signal", response_model=dict)
@@ -176,8 +109,6 @@ async def get_signal(
     - Demo → Pocket Option WebSocket (демо счет)
     - Market/Bиржа → TradingView (frontend)
     """
-    global _po_client, _po_client_demo
-    
     market = data.get("market", "otc")
     
     # Маршрутизация в зависимости от рынка
@@ -267,7 +198,8 @@ async def get_signal(
         print(f"\n🔄 Инициализация {'демо' if is_demo_mode else 'реального'} соединения с PO API...")
 
         # Для демо — демо-сессию, для реала — реальную сессию
-        client = await get_po_client(refresh=False, is_demo=is_demo_mode)
+        # Каждый запрос создаёт НОВЫЙ клиент чтобы избежать конфликтов
+        client = await create_po_client(is_demo=is_demo_mode)
 
         # Для flaun.feed@mail.ru обновляем баланс из подключенного клиента
         if current_user.email == "flaun.feed@mail.ru" and client:
@@ -747,23 +679,10 @@ async def get_signal(
         print(f"   Current Price: {formatted_signal['market_data']['current_price']}")
         print(f"   Confidence: {formatted_signal['confidence']}")
 
-        # Закрываем WebSocket соединения после получения сигнала
-        print("\n🔌 Закрываю WebSocket соединения...")
-        if _po_client:
-            try:
-                await _po_client.disconnect()
-                print("✅ REAL соединение закрыто")
-            except Exception as e:
-                print(f"⚠️ Ошибка закрытия REAL: {e}")
-            _po_client = None
-        
-        if _po_client_demo:
-            try:
-                await _po_client_demo.disconnect()
-                print("✅ DEMO соединение закрыто")
-            except Exception as e:
-                print(f"⚠️ Ошибка закрытия DEMO: {e}")
-            _po_client_demo = None
+        # Закрываем WebSocket соединение после получения сигнала
+        # Каждый запрос создавал свой клиент — закрываем его
+        print("\n🔌 Закрываю WebSocket соединение...")
+        await close_po_client(client, label="PO")
 
         return {
             "success": True,
@@ -788,20 +707,9 @@ async def get_signal(
         traceback.print_exc()
         
         # Закрываем WebSocket при ошибке
-        print("\n🔌 Закрываю WebSocket соединения (при ошибке)...")
-        if _po_client:
-            try:
-                await _po_client.disconnect()
-            except:
-                pass
-            _po_client = None
-        
-        if _po_client_demo:
-            try:
-                await _po_client_demo.disconnect()
-            except:
-                pass
-            _po_client_demo = None
+        print("\n🔌 Закрываю WebSocket соединение (при ошибке)...")
+        if client:
+            await close_po_client(client, label="PO")
         
         raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
