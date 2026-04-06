@@ -736,6 +736,25 @@ async def get_signal(
         print(f"   Current Price: {formatted_signal['market_data']['current_price']}")
         print(f"   Confidence: {formatted_signal['confidence']}")
 
+        # Закрываем WebSocket соединения после получения сигнала
+        print("\n🔌 Закрываю WebSocket соединения...")
+        global _po_client, _po_client_demo
+        if _po_client:
+            try:
+                await _po_client.disconnect()
+                print("✅ REAL соединение закрыто")
+            except Exception as e:
+                print(f"⚠️ Ошибка закрытия REAL: {e}")
+            _po_client = None
+        
+        if _po_client_demo:
+            try:
+                await _po_client_demo.disconnect()
+                print("✅ DEMO соединение закрыто")
+            except Exception as e:
+                print(f"⚠️ Ошибка закрытия DEMO: {e}")
+            _po_client_demo = None
+
         return {
             "success": True,
             "signal": formatted_signal,
@@ -757,6 +776,24 @@ async def get_signal(
         print(f"❌ Ошибка: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Закрываем WebSocket при ошибке
+        print("\n🔌 Закрываю WebSocket соединения (при ошибке)...")
+        global _po_client, _po_client_demo
+        if _po_client:
+            try:
+                await _po_client.disconnect()
+            except:
+                pass
+            _po_client = None
+        
+        if _po_client_demo:
+            try:
+                await _po_client_demo.disconnect()
+            except:
+                pass
+            _po_client_demo = None
+        
         raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при генерации сигнала: {str(e)}"
