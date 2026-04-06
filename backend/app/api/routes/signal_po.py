@@ -74,38 +74,25 @@ class POConnectionPool:
     async def _keepalive_loop(self):
         """
         Фоновый цикл keepalive — как в PocketOptionAPI
-        Каждые 20 секунд пингует оба клиента
+        Каждые 20 секунд пингует оба клиента через is_connected
         """
         while True:
             try:
                 await asyncio.sleep(20)  # Пинг каждые 20 сек
                 
-                # Пингуем REAL клиент — НЕ отключаем сразу при ошибке
+                # Проверяем REAL клиент
                 if self._client is not None:
-                    try:
-                        balance = await self._client.get_balance()
-                        if balance:
-                            bal_val = getattr(balance, 'balance', balance)
-                            print(f"💓 PO keepalive REAL OK (баланс: ${bal_val})")
-                        else:
-                            # Не отключаем — просто логируем
-                            print("⚠️ PO keepalive REAL: баланс не доступен (пропускаем)")
-                    except Exception as e:
-                        # НЕ отключаем при каждой ошибке!
-                        # Только логируем — следующий запрос проверит клиент и пересоздаст если нужно
-                        print(f"⚠️ PO keepalive REAL ошибка: {e} (не отключаем)")
+                    if self._client.is_connected:
+                        print("💓 PO keepalive REAL OK (WebSocket соединён)")
+                    else:
+                        print("⚠️ PO keepalive REAL: соединение закрыто (не отключаем)")
                 
-                # Пингуем DEMO клиент — НЕ отключаем сразу при ошибке
+                # Проверяем DEMO клиент
                 if self._client_demo is not None:
-                    try:
-                        balance = await self._client_demo.get_balance()
-                        if balance:
-                            bal_val = getattr(balance, 'balance', balance)
-                            print(f"💓 PO keepalive DEMO OK (баланс: ${bal_val})")
-                        else:
-                            print("⚠️ PO keepalive DEMO: баланс не доступен (пропускаем)")
-                    except Exception as e:
-                        print(f"⚠️ PO keepalive DEMO ошибка: {e} (не отключаем)")
+                    if self._client_demo.is_connected:
+                        print("💓 PO keepalive DEMO OK (WebSocket соединён)")
+                    else:
+                        print("⚠️ PO keepalive DEMO: соединение закрыто (не отключаем)")
                         
             except asyncio.CancelledError:
                 print("🔌 Keepalive цикл остановлен")
@@ -118,30 +105,27 @@ class POConnectionPool:
         Получить клиент из пула (или создать новый)
         
         Как в PocketOptionAPI:
-        1. Проверяем существующий клиент
+        1. Проверяем is_connected — жив ли WebSocket
         2. Если жив — переиспользуем
         3. Если мёртв — переподключаем
         """
         async with self._lock:
             target = self._client_demo if is_demo else self._client
             
-            # Переиспользуем если жив
+            # Переиспользуем если WebSocket соединение живо
+            if target is not None and target.is_connected:
+                print(f"♻️ PO клиент переиспользован из пула (WebSocket соединён)")
+                return target
+            
+            # Если клиент есть но соединение закрыто — закрываем и пересоздаём
             if target is not None:
-                try:
-                    balance = await target.get_balance()
-                    if balance:
-                        bal_val = getattr(balance, 'balance', balance)
-                        print(f"♻️ PO клиент переиспользован из пула (баланс: ${bal_val})")
-                        return target
-                except Exception:
-                    print("⚠️ Клиент в пуле мёртв, переподключаем...")
-                    # Закрываем мёртвый
-                    if is_demo:
-                        await self._safe_disconnect(self._client_demo, "DEMO")
-                        self._client_demo = None
-                    else:
-                        await self._safe_disconnect(self._client, "REAL")
-                        self._client = None
+                print("⚠️ Клиент в пуле имеет закрытое соединение, переподключаем...")
+                if is_demo:
+                    await self._safe_disconnect(self._client_demo, "DEMO")
+                    self._client_demo = None
+                else:
+                    await self._safe_disconnect(self._client, "REAL")
+                    self._client = None
             
             # Создаём новый
             client = await self._create_client(is_demo)
