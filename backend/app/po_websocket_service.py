@@ -600,13 +600,33 @@ _pocket_option_ws: Optional[PocketOptionWebSocket] = None
 def get_pocket_option_websocket(ssid: Optional[str] = None) -> PocketOptionWebSocket:
     """Получение экземпляра WebSocket клиента"""
     global _pocket_option_ws
-    if _pocket_option_ws is None:
-        _pocket_option_ws = PocketOptionWebSocket(ssid)
+    
+    # Если экземпляр есть и подключен - возвращаем
+    if _pocket_option_ws is not None and _pocket_option_ws.is_connected():
+        return _pocket_option_ws
+    
+    # Если есть но не подключен - сбрасываем
+    if _pocket_option_ws is not None:
+        logger.info("⚠️ WebSocket exists but not connected, resetting")
+        _pocket_option_ws = None
+    
+    # Создаем новый
+    _pocket_option_ws = PocketOptionWebSocket(ssid)
     return _pocket_option_ws
 
 
 async def create_pocket_option_websocket(ssid: Optional[str] = None) -> PocketOptionWebSocket:
     """Создание и подключение WebSocket клиента"""
-    ws = get_pocket_option_websocket(ssid)
-    await ws.connect()
-    return ws
+    global _pocket_option_ws
+    
+    # Закрываем старое соединение если есть
+    if _pocket_option_ws is not None:
+        if _pocket_option_ws.is_connected():
+            logger.info("🔄 Closing existing WebSocket connection before creating new one")
+            await _pocket_option_ws.disconnect()
+        _pocket_option_ws = None
+    
+    # Создаем новое соединение
+    _pocket_option_ws = PocketOptionWebSocket(ssid)
+    await _pocket_option_ws.connect()
+    return _pocket_option_ws
