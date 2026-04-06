@@ -167,6 +167,8 @@ async def get_signal(
     - Demo → Pocket Option WebSocket (демо счет)
     - Market/Bиржа → TradingView (frontend)
     """
+    global _po_client, _po_client_demo
+    
     market = data.get("market", "otc")
     
     # Маршрутизация в зависимости от рынка
@@ -738,7 +740,6 @@ async def get_signal(
 
         # Закрываем WebSocket соединения после получения сигнала
         print("\n🔌 Закрываю WebSocket соединения...")
-        global _po_client, _po_client_demo
         if _po_client:
             try:
                 await _po_client.disconnect()
@@ -779,7 +780,6 @@ async def get_signal(
         
         # Закрываем WebSocket при ошибке
         print("\n🔌 Закрываю WebSocket соединения (при ошибке)...")
-        global _po_client, _po_client_demo
         if _po_client:
             try:
                 await _po_client.disconnect()
