@@ -4,6 +4,7 @@ from app.database import init_db, close_db
 from app.api import router
 from app.config import get_settings
 from app.po_websocket_service import _pocket_option_ws
+from app.api.routes.signal_po import close_all_po_connections
 
 settings = get_settings()
 
@@ -49,7 +50,11 @@ async def shutdown_event():
     await close_db()
     print("📦 Database connection closed")
     
-    # Закрываем WebSocket соединение с Pocket Option
+    # Закрываем PO Connection Pool
+    await close_all_po_connections()
+    print("✅ PO Connection Pool closed")
+    
+    # Закрываем WebSocket соединение с Pocket Option (старый сервис)
     if _pocket_option_ws and _pocket_option_ws.is_connected():
         print("🔌 Closing Pocket Option WebSocket connection...")
         await _pocket_option_ws.disconnect()

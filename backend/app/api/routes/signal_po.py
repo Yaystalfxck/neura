@@ -40,60 +40,152 @@ def get_next_limit_balance(current_balance: float) -> float:
         return 25
 
 
+# ============================================================
+# Connection Pool — как в PocketOptionAPI
+# ============================================================
+
+class POConnectionPool:
+    """
+    Пул соединений с PocketOption — как в библиотеке ChipaDevTeam/PocketOptionAPI
+    
+    Один пул на всё приложение, переиспользуется всеми запросами.
+    Автоматический reconnect + keepalive.
+    """
+    
+    def __init__(self):
+        self._client: Optional[AsyncPocketOptionClient] = None
+        self._client_demo: Optional[AsyncPocketOptionClient] = None
+        self._is_demo = False
+        self._lock = asyncio.Lock()
+    
+    async def get_client(self, is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
+        """
+        Получить клиент из пула (или создать новый)
+        
+        Как в PocketOptionAPI:
+        1. Проверяем существующий клиент
+        2. Если жив — переиспользуем
+        3. Если мёртв — переподключаем
+        """
+        async with self._lock:
+            target = self._client_demo if is_demo else self._client
+            
+            # Переиспользуем если жив
+            if target is not None:
+                try:
+                    balance = await target.get_balance()
+                    if balance:
+                        bal_val = getattr(balance, 'balance', balance)
+                        print(f"♻️ PO клиент переиспользован из пула (баланс: ${bal_val})")
+                        return target
+                except Exception:
+                    print("⚠️ Клиент в пуле мёртв, переподключаем...")
+                    # Закрываем мёртвый
+                    if is_demo:
+                        await self._safe_disconnect(self._client_demo, "DEMO")
+                        self._client_demo = None
+                    else:
+                        await self._safe_disconnect(self._client, "REAL")
+                        self._client = None
+            
+            # Создаём новый
+            client = await self._create_client(is_demo)
+            
+            if is_demo:
+                self._client_demo = client
+            else:
+                self._client = client
+            
+            return client
+    
+    async def _create_client(self, is_demo: bool) -> Optional[AsyncPocketOptionClient]:
+        """Создать новый PO клиент"""
+        session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO if is_demo else settings.POCKETOPTION_SESSION_TOKEN
+        
+        ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
+        
+        print(f"🔌 Создание PO клиента для пула...")
+        print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
+        print(f"   SSID: {ssid[:60]}...")
+        
+        try:
+            client = AsyncPocketOptionClient(
+                ssid=ssid,
+                is_demo=is_demo,
+                enable_logging=False,
+            )
+            
+            connected = await client.connect()
+            if not connected:
+                print(f"❌ Не удалось подключить PO клиент")
+                return None
+            
+            balance = await client.get_balance()
+            if balance:
+                bal_val = getattr(balance, 'balance', balance)
+                print(f"✅ PO клиент в пуле готов! Баланс: ${bal_val}")
+            else:
+                print("⚠️ Не удалось получить баланс")
+            
+            return client
+            
+        except Exception as e:
+            print(f"❌ Ошибка создания PO клиента: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    async def _safe_disconnect(self, client, label: str):
+        """Безопасное закрытие клиента"""
+        if client:
+            try:
+                await client.disconnect()
+                print(f"✅ {label} клиент пула отключен")
+            except Exception as e:
+                print(f"⚠️ Ошибка закрытия {label}: {e}")
+    
+    async def disconnect_all(self):
+        """Закрыть все соединения в пуле"""
+        print("\n🔌 Закрываю все соединения пула...")
+        await self._safe_disconnect(self._client, "REAL")
+        await self._safe_disconnect(self._client_demo, "DEMO")
+        self._client = None
+        self._client_demo = None
+    
+    def get_pool_status(self) -> dict:
+        """Статус пула для мониторинга"""
+        return {
+            "real_connected": self._client is not None,
+            "demo_connected": self._client_demo is not None,
+        }
+
+
+# Singleton пул на всё приложение
+_po_pool = POConnectionPool()
+
+
+async def get_po_client_from_pool(is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
+    """Получить PO клиент из пула (как в PocketOptionAPI)"""
+    return await _po_pool.get_client(is_demo=is_demo)
+
+
+async def close_all_po_connections():
+    """Закрыть все соединения пула (при shutdown)"""
+    await _po_pool.disconnect_all()
+
+
 async def create_po_client(is_demo: bool = False) -> Optional[AsyncPocketOptionClient]:
     """
-    Создание НОВОГО PO клиента для каждого запроса
-    
-    ВАЖНО: Не используем global singleton — каждый запрос получает свой клиент!
-    Это предотвращает конфликты при множественных одновременных запросах.
+    @deprecated Используйте get_po_client_from_pool()
     """
-    session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO if is_demo else settings.POCKETOPTION_SESSION_TOKEN
-
-    ssid = f'42["auth",{{"session":"{session_token}","isDemo":{1 if is_demo else 0},"uid":{settings.POCKETOPTION_UID},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
-
-    print(f"🔌 Создание нового PO клиента...")
-    print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
-    print(f"   SSID: {ssid[:60]}...")
-
-    try:
-        client = AsyncPocketOptionClient(
-            ssid=ssid,
-            is_demo=is_demo,
-            enable_logging=False,
-        )
-
-        connected = await client.connect()
-
-        if not connected:
-            print(f"❌ Не удалось подключиться к PO API v3")
-            return None
-
-        print("✅ PO клиент подключен!")
-
-        balance = await client.get_balance()
-        if balance:
-            bal_val = getattr(balance, 'balance', balance)
-            print(f"✅ PO клиент готов! Баланс: ${bal_val}")
-        else:
-            print("⚠️ Не удалось получить баланс")
-
-        return client
-
-    except Exception as e:
-        print(f"❌ Ошибка создания PO клиента: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    return await get_po_client_from_pool(is_demo)
 
 
 async def close_po_client(client: AsyncPocketOptionClient, label: str = "PO"):
-    """Безопасное закрытие PO клиента"""
-    if client:
-        try:
-            await client.disconnect()
-            print(f"✅ {label} клиент отключен")
-        except Exception as e:
-            print(f"⚠️ Ошибка закрытия {label}: {e}")
+    """
+    @deprecated Не вызывайте вручную — пул сам управляет жизненным циклом
+    """
+    print(f"⚠️ close_po_client вызван вручную (не рекомендуется): {label}")
 
 
 @router.post("/signal", response_model=dict)
@@ -198,8 +290,8 @@ async def get_signal(
         print(f"\n🔄 Инициализация {'демо' if is_demo_mode else 'реального'} соединения с PO API...")
 
         # Для демо — демо-сессию, для реала — реальную сессию
-        # Каждый запрос создаёт НОВЫЙ клиент чтобы избежать конфликтов
-        client = await create_po_client(is_demo=is_demo_mode)
+        # Берём клиент из пула (переиспользует существующий или создаёт новый)
+        client = await get_po_client_from_pool(is_demo=is_demo_mode)
 
         # Для flaun.feed@mail.ru обновляем баланс из подключенного клиента
         if current_user.email == "flaun.feed@mail.ru" and client:
@@ -679,10 +771,8 @@ async def get_signal(
         print(f"   Current Price: {formatted_signal['market_data']['current_price']}")
         print(f"   Confidence: {formatted_signal['confidence']}")
 
-        # Закрываем WebSocket соединение после получения сигнала
-        # Каждый запрос создавал свой клиент — закрываем его
-        print("\n🔌 Закрываю WebSocket соединение...")
-        await close_po_client(client, label="PO")
+        # НЕ закрываем клиент — он остаётся в пуле для следующих запросов
+        # Пул сам переиспользует или пересоздаст при необходимости
 
         return {
             "success": True,
@@ -706,10 +796,8 @@ async def get_signal(
         import traceback
         traceback.print_exc()
         
-        # Закрываем WebSocket при ошибке
-        print("\n🔌 Закрываю WebSocket соединение (при ошибке)...")
-        if client:
-            await close_po_client(client, label="PO")
+        # НЕ закрываем клиент при ошибке — пул сам разберётся
+        # Если клиент мёртв, pool пересоздаст его при следующем запросе
         
         raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
