@@ -143,6 +143,22 @@ class POConnectionPool:
 _po_pool = POConnectionPool()
 
 
+async def close_all_po_connections():
+    """Закрыть все соединения (при shutdown)"""
+    # BinaryOptionsToolsV2 не держит постоянных соединений
+    # Каждое соединение закрывается после использования
+    print("🔌 PO connections cleanup (no persistent connections)")
+
+
+async def get_payout_for_assets(asset_ids: list) -> dict:
+    """Получить payout для списка активов"""
+    results = {}
+    for asset_id in asset_ids:
+        payout = await _po_pool.get_payout(asset_id)
+        results[asset_id] = payout
+    return results
+
+
 @router.post("/signal", response_model=dict)
 async def get_signal(
     data: dict,
