@@ -1,143 +1,110 @@
 #!/usr/bin/env python3
 """
 Тест реального времени Pocket Option WebSocket
-Подключается к PO, получает актуальные свечи и показывает текущую цену
+Использует BinaryOptionsToolsV2 для получения РЕАЛЬНОЙ цены через subscribe_symbol
 """
 
 import asyncio
 import sys
+import time
 from datetime import datetime
-from pocketoptionapi_async.client import AsyncPocketOptionClient
+from BinaryOptionsToolsV2 import PocketOptionAsync
 from app.config import get_settings
 
 settings = get_settings()
 
 
-async def test_realtime_candles(is_demo: bool = True):
-    """
-    Тест получения реальных свечей с Pocket Option
-    """
+async def test_realtime_price(is_demo: bool = True):
     print("\n" + "="*60)
-    print(f"🧪 POCKET OPTION WEBSOCKET REAL-TIME TEST")
+    print(f"🧪 POCKET OPTION REAL-TIME (BinaryOptionsToolsV2)")
     print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
     print("="*60)
     
-    # Получаем данные для подключения
+    # Session
     if is_demo:
         session_token = settings.POCKETOPTION_SESSION_TOKEN_DEMO
-        uid = settings.POCKETOPTION_UID
     else:
         session_token = settings.POCKETOPTION_SESSION_TOKEN
-        uid = settings.POCKETOPTION_UID
     
     if not session_token:
-        print("❌ Session token не задан!")
+        print("❌ Token не задан!")
         return False
     
-    print(f"\n📝 Конфигурация:")
-    print(f"   SSID: {session_token[:30]}...")
-    print(f"   UID: {uid}")
-    
-    # Формируем SSID
-    if is_demo:
-        ssid = f'42["auth",{{"session":"{session_token}","isDemo":1,"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
-    else:
-        ssid = session_token
-    
-    print(f"\n🔌 Подключение к Pocket Option WebSocket...")
-    print(f"   Режим: {'DEMO' if is_demo else 'REAL'}")
-    print(f"   SSID: {ssid[:60]}...")
+    print(f"\n📝 Config:")
+    print(f"   SSID: {session_token[:40]}...")
     
     try:
-        client = AsyncPocketOptionClient(
-            ssid=ssid,
-            is_demo=is_demo,
-            enable_logging=False,
-        )
+        print("\n🔌 Connecting...")
+        client = PocketOptionAsync(ssid=session_token)
         
-        print("⏳ Connecting...")
-        connected = await client.connect()
-        
-        if not connected:
-            print("❌ Не удалось подключиться!")
-            return False
-        
-        print("✅ WebSocket подключен!")
+        await client.connect()
+        print("✅ Connected!")
         
         # Баланс
-        print("\n💰 Баланс...")
+        print("\n💰 Balance...")
         try:
-            balance = await client.get_balance()
-            if balance:
-                bal = getattr(balance, 'balance', balance)
-                print(f"✅ ${bal}")
+            balance = await client.balance()
+            print(f"   ${balance}")
         except Exception as e:
-            print(f"⚠️ {e}")
+            print(f"   ⚠️ {e}")
         
-        # Подписываемся на стрим
-        print(f"\n📡 Подписка на real-time AUD/CAD OTC...")
+        # Подписываемся на реальные тики AUD/CAD OTC
+        print(f"\n📡 subscribe_symbol: AUDCAD_otc...")
+        print(f"   ⏳ Ожидание тиков (5 сек)...")
         
-        # Отправляем changeSymbol
-        subscribe_msg = '42["changeSymbol",{"asset":"AUDCAD_otc","period":60}]'
-        await client._websocket.send_message(subscribe_msg)
+        prices = []
+        start_time = time.time()
         
-        # Ждём stream update
-        print("⏳ Ожидание данных...")
-        await asyncio.sleep(3)
-        
-        # Проверяем кэш
-        candles_cache = getattr(client, '_candles_cache', {})
-        asset_info_cache = getattr(client, '_asset_info', {})
-        
-        if candles_cache and "AUDCAD_otc_60" in candles_cache:
-            candles = candles_cache["AUDCAD_otc_60"]
-            print(f"✅ Stream свечи: {len(candles)} шт")
+        async for candle in await client.subscribe_symbol("AUDCAD_otc"):
+            price_raw = candle.get('close', candle.get('price', 0))
+            ts = candle.get('time', candle.get('timestamp', 0))
             
-            # Последние 5
-            print(f"\n{'Время':<12} {'Open':<10} {'High':<10} {'Low':<10} {'Close':<10}")
-            print("="*55)
-            for c in candles[-5:]:
-                o = getattr(c, 'open', c.get('open', 0))
-                h = getattr(c, 'high', c.get('high', 0))
-                l = getattr(c, 'low', c.get('low', 0))
-                cl = getattr(c, 'close', c.get('close', 0))
-                ts = getattr(c, 'timestamp', c.get('time', 0))
-                if ts and hasattr(ts, 'timestamp'):
-                    ts = int(ts.timestamp())
-                t = datetime.fromtimestamp(ts).strftime('%H:%M:%S') if ts else '--:--:--'
-                print(f"{t:<12} {o:<10.5f} {h:<10.5f} {l:<10.5f} {cl:<10.5f}")
+            try:
+                price = float(price_raw)
+            except:
+                price = 0.0
             
-            last = candles[-1]
-            price = getattr(last, 'close', last.get('close', 0))
-            print(f"\n💰 РЕАЛЬНАЯ ЦЕНА: {price:.5f}")
+            if ts:
+                t = datetime.utcfromtimestamp(ts).strftime('%H:%M:%S.%f')[:-3]
+            else:
+                t = datetime.utcnow().strftime('%H:%M:%S.%f')[:-3]
+            
+            prices.append(price)
+            print(f"   💰 {t}  {price:.5f}")
+            
+            # Ждём 5 секунд
+            if time.time() - start_time >= 5:
+                break
+        
+        if prices:
+            print(f"\n✅ Получено {len(prices)} тиков!")
+            print(f"\n💰 РЕАЛЬНАЯ ЦЕНА СЕЙЧАС: {prices[-1]:.5f}")
         else:
-            print("⚠️ Stream candles не получены")
-        
-        if asset_info_cache and "AUDCAD_otc" in asset_info_cache:
-            info = asset_info_cache["AUDCAD_otc"]
-            print(f"\n📈 Информация:")
-            for k, v in info.items():
-                print(f"   {k}: {v}")
+            print("\n❌ Тики не получены — сессия истекла!")
         
         # Payout
-        print("\n📈 Payout...")
         try:
             p = client.get_payout("AUDCAD_otc")
-            print(f"✅ {p}%" if p else "⚠️ N/A")
+            print(f"\n💵 Payout: {p}%" if p else "💵 Payout: N/A")
         except:
-            print("⚠️ Ошибка")
+            pass
         
         # Отключение
-        print("\n🔌 Отключение...")
-        await client.disconnect()
-        print("✅ Готово!")
-        
+        print("\n🔌 Disconnecting...")
+        try:
+            await client.disconnect()
+        except AttributeError:
+            # BinaryOptionsToolsV2 может использовать другое имя метода
+            if hasattr(client, '__aexit__'):
+                await client.__aexit__(None, None, None)
+            pass
+        print("✅ Done!")
         print("\n" + "="*60)
-        print("✅ ТЕСТ ЗАВЕРШЁН!")
+        print("✅ TEST COMPLETED!")
         return True
         
     except Exception as e:
-        print(f"\n❌ ОШИБКА: {e}")
+        print(f"\n❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -145,7 +112,7 @@ async def test_realtime_candles(is_demo: bool = True):
 
 async def main():
     is_demo = len(sys.argv) < 2 or sys.argv[1].lower() != 'real'
-    success = await test_realtime_candles(is_demo)
+    success = await test_realtime_price(is_demo)
     sys.exit(0 if success else 1)
 
 
