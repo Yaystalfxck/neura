@@ -256,33 +256,9 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # Получаем реальные данные из PO API v3
+        # BinaryOptionsToolsV2 — соединения создаются по запросу
         is_demo_mode = market.lower() == "demo"
-        print(f"\n🔄 Инициализация {'демо' if is_demo_mode else 'реального'} соединения с PO API...")
-
-        # Для демо — демо-сессию, для реала — реальную сессию
-        # Берём клиент из пула (переиспользует существующий или создаёт новый)
-        client = await get_po_client_from_pool(is_demo=is_demo_mode)
-
-        # Для flaun.feed@mail.ru обновляем баланс из подключенного клиента
-        if current_user.email == "flaun.feed@mail.ru" and client:
-            try:
-                balance = await client.get_balance()
-                if balance:
-                    if hasattr(balance, 'balance'):
-                        po_balance = float(balance.balance)
-                    elif isinstance(balance, dict):
-                        po_balance = float(balance.get('balance', 0))
-                    else:
-                        po_balance = float(balance)
-                    
-                    # Сохраняем в БД
-                    current_user.balance = po_balance
-                    user_balance = po_balance
-                    await db.commit()
-                    print(f"💰 Демо баланс обновлён: ${po_balance}")
-            except Exception as e:
-                print(f"⚠️ Не удалось обновить баланс: {e}")
+        print(f"\n🔄 Режим: {'демо' if is_demo_mode else 'реальный'} (BinaryOptionsToolsV2)")
         
         assets = []
         use_demo = False
