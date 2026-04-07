@@ -301,7 +301,7 @@ async def get_signal(
                 })
         
         print(f"✅ Найдено {len(assets)} активов с payout >= {min_payout}%")
-        
+
         if not assets:
             print("⚠️ Нет активов, используем демо")
             use_demo = True
@@ -311,47 +311,76 @@ async def get_signal(
                 {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 92},
             ]
         
-        # Выбираем лучший актив
-        best_asset = max(assets, key=lambda x: x['payout'])
-        optimal_timeframe = 5  # 5 минут по умолчанию
+        # 🔍 Анализируем ВСЕ активы и выбираем с максимальной уверенностью
+        print(f"\n🔍 Анализ {len(assets)} активов для выбора лучшего сигнала...")
         
-        print(f"\n🎯 Выбран актив: {best_asset['name']} (payout: {best_asset['payout']}%)")
+        analyzed_signals = []
         
-        # Получаем ИСТОРИЧЕСКИЕ свечи через BinaryOptionsToolsV2
-        print(f"\n📊 Получение истории {best_asset['id']}...")
-        history = await _po_pool.get_historical_candles(best_asset['id'], timeframe=60, count=100)
+        for asset in assets:
+            try:
+                # Получаем историю для анализа
+                history = await _po_pool.get_historical_candles(asset['id'], timeframe=60, count=100)
+                
+                if not history or len(history) < 20:
+                    print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(history) if history else 0})")
+                    continue
+                
+                # Генерируем сигнал для этого актива
+                signal = advanced_signal_strategy(history, asset, strategy_type)
+                
+                if not signal:
+                    signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
+                
+                if signal:
+                    # Извлекаем уверенность (confidence)
+                    conf_str = signal.get('confidence', '50%')
+                    if isinstance(conf_str, str):
+                        confidence = float(conf_str.replace('%', ''))
+                    else:
+                        confidence = float(conf_str)
+                    
+                    analyzed_signals.append({
+                        'asset': asset,
+                        'signal': signal,
+                        'history': history,
+                        'confidence': confidence
+                    })
+                    
+                    print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%)")
+                
+            except Exception as e:
+                print(f"   ❌ {asset['name']}: ошибка анализа — {e}")
         
-        if not history:
-            print("❌ Не удалось получить историю — сигнал не сгенерирован")
+        if not analyzed_signals:
+            print("❌ Не удалось проанализировать ни один актив")
             raise FastAPIHTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Не удалось получить данные с Pocket Option"
+                detail="Не удалось сгенерировать сигнал"
             )
         
-        print(f"✅ Получено {len(history)} исторических свечей")
+        # 🏆 Выбираем актив с МАКСИМАЛЬНОЙ уверенностью
+        best = max(analyzed_signals, key=lambda x: x['confidence'])
+        best_asset = best['asset']
+        signal = best['signal']
+        history = best['history']
+        optimal_timeframe = 5
         
-        # Получаем РЕАЛЬНУЮ текущую цену
-        print(f"\n💰 Получение РЕАЛЬНОЙ цены...")
+        print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
+        print(f"   Направление: {signal.get('signal_type', '?').upper()}")
+        print(f"   Уверенность: {best['confidence']:.1f}%")
+        print(f"   Payout: {best_asset['payout']}%")
+
+        # Получаем РЕАЛЬНУЮ текущую цену для лучшего актива
+        print(f"\n💰 Получение РЕАЛЬНОЙ цены для {best_asset['name']}...")
         realtime_price = await _po_pool.get_realtime_price(best_asset['id'], timeout=3.0)
         
         if realtime_price:
             print(f"✅ РЕАЛЬНАЯ ЦЕНА: {realtime_price:.5f}")
         else:
-            # Fallback на последнюю историческую
             realtime_price = history[-1]['close']
             print(f"⚠️ Real-time не получен, используем историю: {realtime_price:.5f}")
-        
-        # Генерируем сигнал на основе истории и реальной цены
-        print(f"\n🤖 Генерация сигнала...")
-        
-        # Используем advanced_signal_strategy с нашей историей
-        signal = advanced_signal_strategy(history, best_asset, strategy_type)
-        
-        if not signal:
-            # Fallback
-            signal = generate_signal_from_candles_simple(history, best_asset, strategy_type, optimal_timeframe)
-        
-        # Устанавливаем РЕАЛЬНУЮ цену в сигнал
+
+        # Обновляем цену в сигнале
         signal['current_price'] = float(realtime_price)
         
         print(f"\n✅ СИГНАЛ СГЕНЕРИРОВАН:")
@@ -359,11 +388,6 @@ async def get_signal(
         print(f"   Направление: {signal['signal_type'].upper()}")
         print(f"   Уверенность: {signal['confidence']}")
         print(f"   Реальная цена: {realtime_price:.5f}")
-        
-        print(f"\n✅ СИГНАЛ СГЕНЕРИРОВАН:")
-        print(f"   Пара: {signal['pair_name']}")
-        print(f"   Направление: {signal['signal_type'].upper()}")
-        print(f"   Уверенность: {signal['confidence']}")
         
         # Сохраняем сигнал в БД
         signal_record = POSignal(
