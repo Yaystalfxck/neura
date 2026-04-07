@@ -73,11 +73,11 @@ async def test_realtime_candles():
         except Exception as e:
             print(f"⚠️ Ошибка получения баланса: {e}")
         
-        # Получаем свечи для EURUSD OTC
-        print("\n📊 Получение реальных свечей для EURUSD OTC...")
+        # Получаем свечи для AUDCAD OTC
+        print("\n📊 Получение реальных свечей для AUD/CAD OTC...")
         
         try:
-            candles = await client.get_candles("EURUSD_otc", timeframe=60, count=5)
+            candles = await client.get_candles("AUDCAD_otc", timeframe=60, count=5)
             
             if candles and len(candles) > 0:
                 print(f"\n✅ Получено {len(candles)} свечей!")
@@ -128,10 +128,10 @@ async def test_realtime_candles():
         # Получаем payout
         print("\n📈 Получение payout...")
         try:
-            payout = await client.get_payout("EURUSD_otc")
+            payout = await client.get_payout("AUDCAD_otc")
             if payout:
                 payout_val = getattr(payout, 'payout', payout.get('payout', payout) if isinstance(payout, dict) else 0)
-                print(f"✅ Payout для EURUSD OTC: {payout_val}%")
+                print(f"✅ Payout для AUD/CAD OTC: {payout_val}%")
             else:
                 print("⚠️ Payout не доступен")
         except Exception as e:
