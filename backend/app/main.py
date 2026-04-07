@@ -42,9 +42,7 @@ async def startup_event():
     await init_db()
     print("✅ Database initialized")
     print(f"🚀 Neura API running on {settings.API_URL}")
-    
-    # Запускаем keepalive для PO Connection Pool
-    await _po_pool.start_keepalive()
+    # BinaryOptionsToolsV2 не требует keepalive — соединения создаются по запросу
 
 
 @app.on_event("shutdown")
