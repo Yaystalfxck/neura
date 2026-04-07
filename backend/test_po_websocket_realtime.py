@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Тест реального времени Pocket Option WebSocket
-Использует BinaryOptionsToolsV2 для получения РЕАЛЬНОЙ цены через subscribe_symbol
+Использует BinaryOptionsToolsV2 для получения РЕАЛЬНОЙ цены и истории
 """
 
 import asyncio
@@ -48,11 +48,44 @@ async def test_realtime_price(is_demo: bool = True):
         except Exception as e:
             print(f"   ⚠️ {e}")
         
-        # Подписываемся на реальные тики AUD/CAD OTC
-        print(f"\n📡 subscribe_symbol: AUDCAD_otc...")
-        print(f"   ⏳ Ожидание тиков (5 сек)...")
+        # 1️⃣ Получаем ИСТОРИЧЕСКИЕ свечи для анализа
+        print(f"\n📊 Получение истории AUD/CAD OTC (100 свечей)...")
+        try:
+            history = await client.get_candles("AUDCAD_otc", 60, 100)
+            
+            if history and len(history) > 0:
+                print(f"   ✅ Получено {len(history)} исторических свечей")
+                
+                # Показываем последние 5
+                print(f"\n   {'Время':<12} {'Open':<10} {'Close':<10} {'High':<10} {'Low':<10}")
+                print(f"   {'='*55}")
+                for c in history[-5:]:
+                    ts = c.get('time', c.get('timestamp', 0))
+                    o = float(c.get('open', 0))
+                    cl = float(c.get('close', 0))
+                    h = float(c.get('high', 0))
+                    l = float(c.get('low', 0))
+                    
+                    t = datetime.utcfromtimestamp(ts).strftime('%H:%M:%S') if ts else '???'
+                    print(f"   {t:<12} {o:<10.5f} {cl:<10.5f} {h:<10.5f} {l:<10.5f}")
+                
+                # Цена последней исторической свечи
+                hist_last_price = float(history[-1].get('close', 0))
+                hist_time = history[-1].get('time', 0)
+                hist_time_str = datetime.utcfromtimestamp(hist_time).strftime('%H:%M:%S') if hist_time else '???'
+                print(f"\n   📜 Историческая цена (закрытая): {hist_last_price:.5f}")
+                print(f"   ⏱️ Время: {hist_time_str} UTC")
+            else:
+                print("   ❌ История не получена")
+                history = []
+        except Exception as e:
+            print(f"   ❌ Ошибка истории: {e}")
+            history = []
         
-        prices = []
+        # 2️⃣ Получаем ТЕКУЩУЮ реальную цену через стрим
+        print(f"\n📡 Получение РЕАЛЬНОЙ цены (стрим 3 сек)...")
+        
+        realtime_prices = []
         start_time = time.time()
         
         async for candle in await client.subscribe_symbol("AUDCAD_otc"):
@@ -69,18 +102,28 @@ async def test_realtime_price(is_demo: bool = True):
             else:
                 t = datetime.utcnow().strftime('%H:%M:%S.%f')[:-3]
             
-            prices.append(price)
+            realtime_prices.append(price)
             print(f"   💰 {t}  {price:.5f}")
             
-            # Ждём 5 секунд
-            if time.time() - start_time >= 5:
+            # Ждём 3 секунды
+            if time.time() - start_time >= 3:
                 break
         
-        if prices:
-            print(f"\n✅ Получено {len(prices)} тиков!")
-            print(f"\n💰 РЕАЛЬНАЯ ЦЕНА СЕЙЧАС: {prices[-1]:.5f}")
+        if realtime_prices:
+            current_price = realtime_prices[-1]
+            print(f"\n   🎯 ТЕКУЩАЯ РЕАЛЬНАЯ ЦЕНА: {current_price:.5f}")
         else:
-            print("\n❌ Тики не получены — сессия истекла!")
+            current_price = hist_last_price if history else 0
+            print(f"\n   ⚠️ Стрим не получен, используем историю: {current_price:.5f}")
+        
+        # 3️⃣ Показываем разницу
+        if history and realtime_prices:
+            diff = current_price - hist_last_price
+            diff_pct = (diff / hist_last_price) * 100
+            print(f"\n📊 Сравнение:")
+            print(f"   История:   {hist_last_price:.5f}")
+            print(f"   Реальная:  {current_price:.5f}")
+            print(f"   Разница:   {diff:+.5f} ({diff_pct:+.3f}%)")
         
         # Payout
         try:
@@ -94,7 +137,6 @@ async def test_realtime_price(is_demo: bool = True):
         try:
             await client.disconnect()
         except AttributeError:
-            # BinaryOptionsToolsV2 может использовать другое имя метода
             if hasattr(client, '__aexit__'):
                 await client.__aexit__(None, None, None)
             pass
