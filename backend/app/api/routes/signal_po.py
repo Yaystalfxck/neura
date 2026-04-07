@@ -635,15 +635,27 @@ async def get_signal(
             try:
                 print(f"\n📈 Получение свечей для {best_asset['id']}...")
 
-                # Первый запрос для обновления кэша
-                await client.get_candles(
-                    best_asset['id'],
-                    timeframe=60,  # 1 минута для быстрого обновления
-                    count=10
-                )
-                pass  # Обновление кэша
+                # 🔄 ОЧИЩАЕМ ВСЕ КЭШИ для получения свежих данных!
+                if hasattr(client, '_candles_cache'):
+                    client._candles_cache.clear()
+                    print("   🗑️ Кэш свечей очищен")
+                
+                if hasattr(client, '_payout_cache'):
+                    client._payout_cache.clear()
+                    print("   🗑️ Кэш payout очищен")
+                
+                if hasattr(client, '_balance'):
+                    client._balance = None
+                    print("   🗑️ Кэш баланса очищен")
 
-                # Второй запрос - получаем актуальные данные для оптимального таймфрейма
+                # Запрашиваем обновление payout через WebSocket
+                print("   🔄 Запрос обновления данных через WebSocket...")
+                try:
+                    await client.get_payout()
+                except:
+                    pass
+
+                # Получаем АКТУАЛЬНЫЕ свечи для оптимального таймфрейма
                 candles = await client.get_candles(
                     best_asset['id'],
                     timeframe=optimal_timeframe * 60,  # Оптимальная экспирация в секундах
