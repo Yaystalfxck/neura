@@ -41,6 +41,9 @@ pandas==2.1.4
 websockets==12.0
 certifi==2024.2.2
 
+# BinaryOptionsToolsV2 (real-time PocketOption prices)
+BinaryOptionsToolsV2==0.2.9
+
 # Machine Learning (for ML strategy)
 scikit-learn==1.4.0
 scikit-learn>=1.3.0
