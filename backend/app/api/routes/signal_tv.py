@@ -20,23 +20,10 @@ from app.models import User, SignalUsage, PocketOptionUser
 from app.balance_utils import get_user_balance
 from app.ml_signal_generator import get_ml_generator
 from app.po_models import POSignal
+from app.signal_limits import get_signal_limits, get_next_limit_balance
 from app.enhanced_signal_analyzer import EnhancedSignalAnalyzer
 
 router = APIRouter(prefix="/api", tags=["Signals"])
-
-
-def get_next_limit_balance(current_balance: float) -> float:
-    """Возвращает необходимый баланс для следующего лимита сигналов"""
-    if current_balance >= 200:
-        return 200  # Максимум достигнут
-    elif current_balance >= 100:
-        return 200
-    elif current_balance >= 50:
-        return 100
-    elif current_balance >= 25:
-        return 50
-    else:
-        return 25
 
 
 async def get_tradingview_data(market: str = "market", timeframe: str = "5"):
@@ -107,154 +94,182 @@ def get_demo_tradingview_data(market: str, timeframe: str):
 def analyze_tradingview_signal(tv_data: list, strategy_type: str) -> Optional[dict]:
     """
     Анализ данных TradingView и генерация сигнала
-    
-    Args:
-        tv_data: список данных по валютным парам
-        strategy_type: тип стратегии
+    С приоритетом ML и улучшенным скорингом индикаторов
     """
     if not tv_data or len(tv_data) == 0:
         return None
-    
-    # Выбираем лучшую пару на основе индикаторов
+
     best_pair = None
     best_score = 0
     
+    # 1. Попробуем найти лучший актив
     for pair_data in tv_data:
         indicators = pair_data.get('indicators', {})
-        
+        candles = pair_data.get('candles', [])
+
         # Расчет качества сигнала (0-100)
         score = 0
         
-        # RSI (30 баллов)
+        # RSI (25 баллов)
         rsi = indicators.get('rsi', 50)
         if 25 <= rsi <= 35 or 65 <= rsi <= 75:
-            score += 30  # Хорошая зона
+            score += 25 
         elif rsi < 25 or rsi > 75:
-            score += 20  # Сильная перекупленность/перепроданность
+            score += 15 
         else:
             score += 10
-        
-        # MACD (25 баллов)
+
+        # MACD (20 баллов)
         macd_direction = indicators.get('macd_signal_direction', 'neutral')
         if macd_direction == 'bullish':
-            score += 25
+            score += 20
         elif macd_direction == 'bearish':
-            score += 15
+            score += 10
         else:
             score += 5
-        
+
         # Bollinger Bands (20 баллов)
         bb_position = indicators.get('bb_position', 'middle')
         if bb_position == 'below_lower':
-            score += 20  # Потенциальный разворот вверх
+            score += 20 
         elif bb_position == 'above_upper':
-            score += 15  # Потенциальный разворот вниз
+            score += 15 
         else:
             score += 10
-        
-        # Trend (15 баллов)
+
+        # Stochastic (15 баллов) - если есть
+        stoch = indicators.get('stochastic_k', 50)
+        if stoch < 20:
+            score += 15
+        elif stoch > 80:
+            score += 5
+            
+        # Trend (10 баллов)
         trend = indicators.get('trend', 'neutral')
         if trend == 'bullish':
-            score += 15
-        elif trend == 'bearish':
             score += 10
-        else:
+        elif trend == 'bearish':
             score += 5
-        
+
         # Volume (10 баллов)
         volume_ratio = indicators.get('volume_ratio', 1)
         if volume_ratio > 1.5:
-            score += 10  # Высокий объем
+            score += 10 
         elif volume_ratio > 1:
             score += 5
         else:
             score += 3
-        
-        # Обновляем лучший
+
         if score > best_score:
             best_score = score
-            best_pair = {
-                **pair_data,
-                'signal_score': score
-            }
-    
+            best_pair = {**pair_data, 'signal_score': score}
+
     if not best_pair:
         return None
-    
-    # Определяем направление сигнала
-    indicators = best_pair.get('indicators', {})
-    rsi = indicators.get('rsi', 50)
-    macd = indicators.get('macd_signal_direction', 'neutral')
-    trend = indicators.get('trend', 'neutral')
-    
-    # Голосование индикаторов
-    bullish_votes = 0
-    bearish_votes = 0
-    
-    if rsi < 50:
-        bullish_votes += 1
-    else:
-        bearish_votes += 1
-    
-    if macd == 'bullish':
-        bullish_votes += 1
-    elif macd == 'bearish':
-        bearish_votes += 1
-    
-    if trend == 'bullish':
-        bullish_votes += 1
-    elif trend == 'bearish':
-        bearish_votes += 1
-    
-    # Определяем направление
-    if bullish_votes > bearish_votes:
-        signal_type = "call"
-        direction = "BUY"
-    elif bearish_votes > bullish_votes:
-        signal_type = "put"
-        direction = "SELL"
-    else:
-        # Ничья - используем RSI
-        signal_type = "call" if rsi < 50 else "put"
-        direction = "BUY" if rsi < 50 else "SELL"
-    
-    # Рассчитываем уверенность
-    confidence = min(95, 50 + best_score / 3)
-    
-    # Оптимальная экспирация (3-10 минут, но в основном 5 минут)
-    volatility = indicators.get('volatility', 1)
-    
-    # 70% случаев - 5 минут, 30% - адаптивно от волатильности
-    import random
-    if random.random() < 0.7:
-        optimal_timeframe = 5  # 70% - всегда 5 минут
-    elif volatility < 0.5:
-        optimal_timeframe = 10  # Низкая волатильность - дольше
-    elif volatility > 2:
-        optimal_timeframe = 3  # Высокая волатильность - короче
-    else:
-        optimal_timeframe = 5  # Средняя - 5 минут
 
-    return {
-        "signal_type": signal_type,
-        "strength": "strong" if confidence > 75 else "medium" if confidence > 60 else "weak",
-        "confidence": f"{int(confidence)}%",
-        "current_price": float(best_pair.get('current_price', 0)),
-        "expiry_minutes": optimal_timeframe,
-        "expiry_timestamp": (datetime.utcnow() + timedelta(minutes=optimal_timeframe)).isoformat(),
-        "valid_until": (datetime.utcnow() + timedelta(seconds=30)).isoformat(),
-        "pair_name": best_pair.get('name', 'Unknown'),
-        "trend": trend,
-        "rsi": int(rsi),
-        "pattern_detected": strategy_type,
-        "payout": "N/A",  # Для TradingView payout неизвестен
-        "db_strategy": "INDICATORS",
-        "data_source": "tradingview",
-        "indicators": indicators,
-        "signal_score": best_score,
-        "bullish_votes": bullish_votes,
-        "bearish_votes": bearish_votes
-    }
+    indicators = best_pair.get('indicators', {})
+    candles = best_pair.get('candles', [])
+    
+    signal = None
+    strategy_name = "INDICATORS"
+
+    # 2. Попробуем ML если есть свечи
+    if strategy_type.lower() in ['ml', 'neural_ai', 'neural'] and candles and len(candles) >= 50:
+        try:
+            ml_gen = get_ml_generator()
+            ml_result = ml_gen.generate_signal(candles, best_pair.get('name', 'Unknown'))
+            
+            if ml_result and ml_result.get('confidence', 0) > 0.55:
+                direction = ml_result.get('direction', 'call')
+                confidence_pct = ml_result.get('confidence', 0) * 100
+                signal = {
+                    "signal_type": direction,
+                    "strength": "strong" if confidence_pct > 75 else "medium",
+                    "confidence": f"{confidence_pct:.0f}%",
+                    "current_price": candles[-1].close if hasattr(candles[-1], 'close') else candles[-1].get('close', 0),
+                    "expiry_minutes": 5,
+                    "pair_name": best_pair.get('name', 'Unknown'),
+                    "trend": ml_result.get('trend', 'neutral'),
+                    "rsi": indicators.get('rsi', 50),
+                    "pattern_detected": "ML_PREDICTION",
+                    "payout": "N/A",
+                    "db_strategy": "MACHINE_LEARNING",
+                    "data_source": "tradingview_ml",
+                    "signal_score": int(confidence_pct)
+                }
+                strategy_name = "MACHINE_LEARNING"
+        except Exception as e:
+            print(f"⚠️ ML ошибка: {e}")
+
+    # 3. Если ML не сработал -> индикаторы
+    if signal is None:
+        rsi = indicators.get('rsi', 50)
+        macd = indicators.get('macd_signal_direction', 'neutral')
+        trend = indicators.get('trend', 'neutral')
+
+        bullish_votes = 0
+        bearish_votes = 0
+
+        if rsi < 45: bullish_votes += 1
+        elif rsi > 55: bearish_votes += 1
+
+        if macd == 'bullish': bullish_votes += 1
+        elif macd == 'bearish': bearish_votes += 1
+
+        if trend == 'bullish': bullish_votes += 1
+        elif trend == 'bearish': bearish_votes += 1
+        
+        # Stochastic vote
+        stoch = indicators.get('stochastic_k', 50)
+        if stoch < 30: bullish_votes += 1
+        elif stoch > 70: bearish_votes += 1
+
+        if bullish_votes > bearish_votes:
+            signal_type = "call"
+            direction = "BUY"
+        elif bearish_votes > bullish_votes:
+            signal_type = "put"
+            direction = "SELL"
+        else:
+            signal_type = "call" if rsi < 50 else "put"
+            direction = "BUY" if rsi < 50 else "SELL"
+
+        # Confidence based on votes and score
+        confidence = min(95, 50 + best_score / 2.5)
+        
+        # Volatility-based expiry
+        volatility = indicators.get('volatility', 1)
+        if volatility < 0.5:
+            optimal_timeframe = 7
+        elif volatility > 2:
+            optimal_timeframe = 3
+        else:
+            optimal_timeframe = 5
+            
+        current_price = best_pair.get('current_price', 0)
+        # Convert price object to float if needed
+        if hasattr(current_price, 'value'):
+            current_price = current_price.value
+        else:
+            current_price = float(current_price)
+
+        signal = {
+            "signal_type": signal_type,
+            "strength": "strong" if confidence > 75 else "medium",
+            "confidence": f"{int(confidence)}%",
+            "current_price": current_price,
+            "expiry_minutes": optimal_timeframe,
+            "pair_name": best_pair.get('name', 'Unknown'),
+            "trend": trend,
+            "rsi": int(rsi),
+            "pattern_detected": f"TV_SCORE_{best_score}",
+            "payout": "N/A",
+            "db_strategy": "INDICATORS",
+            "data_source": "tradingview_indicators",
+            "signal_score": best_score
+        }
+
+    return signal
 
 
 @router.post("/signal-tv", response_model=dict)
