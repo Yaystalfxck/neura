@@ -300,10 +300,9 @@ async def get_signal(
         print("✅ BinaryOptionsToolsV2 подключено!")
 
         try:
-            # Ждём чтобы соединение полностью установилось
-            # Увеличено до 5 сек для надежной инициализации сессии на сервере
-            print("⏳ Инициализация соединения...")
-            await asyncio.sleep(5)
+            # Сразу приступаем к анализу.
+            # Убрали сон: сервер может отключать клиентов за бездействие после подключения.
+            print("⏳ Запуск сканирования активов...")
 
             # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
             # Используем history() — самый стабильный метод для получения данных
@@ -332,9 +331,11 @@ async def get_signal(
                 try:
                     # Используем get_candles() как в рабочем тесте
                     # offset=100 позволяет получить достаточно истории
+                    print(f"   📡 Запрос {asset['id']}...")
                     hist_candles = await bot_client.get_candles(asset['id'], 60, 100)
                     
                     if not hist_candles or len(hist_candles) < 20:
+                        print(f"   ⚠️ {asset['id']}: мало данных ({len(hist_candles) if hist_candles else 0})")
                         continue
                     
                     # Анализ на истории
@@ -362,7 +363,8 @@ async def get_signal(
                         })
                 except Exception as e:
                     # Если один актив упал, пропускаем его и идем дальше
-                    pass
+                    # ВКЛЮЧАЕМ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ
+                    print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
 
             # Закрываем сканирующее соединение (безопасно)
             try:
