@@ -257,14 +257,12 @@ async def get_signal(
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
         # pocketoptionapi_async — держит ОДНО WebSocket соединение для всех запросов
-        is_demo_mode = market.lower() == "demo"
-        
-        session_token = settings.POCKETOPTION_SESSION_TOKEN
-        uid = settings.POCKETOPTION_UID
-        ssid = f'42["auth",{{"session":"{session_token}","isDemo":0,"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
+        # SSID из .env имеет экранированные кавычки \\" — заменяем на обычные "
+        full_ssid = settings.POCKETOPTION_SESSION_TOKEN.replace('\\"', '"')
         
         print(f"\n🔌 Подключение к PO (pocketoptionapi_async — одно соединение)...")
-        client = AsyncPocketOptionClient(ssid=ssid, is_demo=False, enable_logging=False)
+        print(f"   SSID: {full_ssid[:80]}...")
+        client = AsyncPocketOptionClient(ssid=full_ssid, is_demo=False, enable_logging=False)
         connected = await client.connect()
         
         if not connected:
