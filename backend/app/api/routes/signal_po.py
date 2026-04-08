@@ -335,26 +335,33 @@ async def get_signal(
 
             print(f"\n🔍 Последовательный анализ {len(currency_pairs)} активов...")
 
-            # Для КАЖДОГО актива создаём отдельное подключение
-            # Это гарантирует СВЕЖИЕ данные без кэширования
+            # Для КАЖДОГО актива: подписка → долгое ожидание → свечи
+            # Это ОБНОВЛЯЕТ кэш BinaryOptionsToolsV2 свежими данными
             analyzed_signals = []
 
             for asset in currency_pairs:
                 try:
                     print(f"   📡 {asset['name']}...")
                     
-                    # Создаём отдельный клиент для этого актива
-                    asset_client = PocketOptionAsync(ssid=ssid_to_use)
-                    await asset_client.connect()
+                    # 1. Подписываемся на актив — сервер начинает слать данные
+                    try:
+                        sub_task = asyncio.create_task(bot_client.subscribe_symbol(asset['id']))
+                        # Ждём 4 сек чтобы данные накопились в кэше
+                        await asyncio.sleep(4)
+                        # Отменяем подписку
+                        sub_task.cancel()
+                        try:
+                            await sub_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                    except Exception:
+                        pass
                     
-                    # Ждём чтобы данные обновились
-                    await asyncio.sleep(3)
+                    # 2. Даём кэшу обновиться
+                    await asyncio.sleep(1)
                     
-                    # Получаем свечи через history() — как в Mastaaa1987
-                    candles_data = await asset_client.history(asset['id'], 60)
-                    
-                    # Закрываем клиент
-                    await asset_client.disconnect()
+                    # 3. Получаем свечи — кэш должен быть свежим
+                    candles_data = await bot_client.get_candles(asset['id'], 60, 100)
                     
                     if not candles_data or len(candles_data) < 20:
                         print(f"   ⚠️ недостаточно данных ({len(candles_data) if candles_data else 0})")
