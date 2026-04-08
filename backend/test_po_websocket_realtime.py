@@ -49,9 +49,9 @@ async def test_realtime_price(is_demo: bool = True):
             print(f"   ⚠️ {e}")
         
         # 1️⃣ Получаем ИСТОРИЧЕСКИЕ свечи для анализа
-        print(f"\n📊 Получение истории AUD/CAD OTC (100 свечей)...")
+        print(f"\n📊 Получение истории EUR/USD OTC (100 свечей)...")
         try:
-            history = await client.get_candles("AUDCAD_otc", 60, 100)
+            history = await client.get_candles("EURUSD_otc", 60, 100)
             
             if history and len(history) > 0:
                 print(f"   ✅ Получено {len(history)} исторических свечей")
@@ -83,12 +83,12 @@ async def test_realtime_price(is_demo: bool = True):
             history = []
         
         # 2️⃣ Получаем ТЕКУЩУЮ реальную цену через стрим
-        print(f"\n📡 Получение РЕАЛЬНОЙ цены (стрим 3 сек)...")
-        
+        print(f"\n📡 Получение РЕАЛЬНОЙ цены EUR/USD OTC (стрим 3 сек)...")
+
         realtime_prices = []
         start_time = time.time()
-        
-        async for candle in await client.subscribe_symbol("AUDCAD_otc"):
+
+        async for candle in await client.subscribe_symbol("EURUSD_otc"):
             price_raw = candle.get('close', candle.get('price', 0))
             ts = candle.get('time', candle.get('timestamp', 0))
             
