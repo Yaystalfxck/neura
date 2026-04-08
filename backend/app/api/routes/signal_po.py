@@ -359,25 +359,26 @@ async def get_signal(
                         continue
                     
                     # 2. Получаем РЕАЛЬНУЮ текущую цену через стрим (как в тесте!)
+                    # ВАЖНО: используем await, как в test_po_websocket_realtime.py
                     real_prices = []
                     try:
-                        sub_task = asyncio.create_task(asset_client.subscribe_symbol(asset['id']))
-                        # Ждём 3 секунды чтобы получить реальные цены
                         start_ts = time.time()
-                        async for candle in sub_task:
+                        # Correct usage: await the async generator
+                        async for candle in await asset_client.subscribe_symbol(asset['id']):
                             price = candle.get('close', candle.get('price', 0))
                             try:
                                 real_prices.append(float(price))
                             except:
                                 pass
-                            if time.time() - start_ts >= 3.0:
+                            
+                            # Если получили 3 тика - достаточно для цены
+                            if len(real_prices) >= 3:
                                 break
-                        sub_task.cancel()
-                        try:
-                            await sub_task
-                        except (asyncio.CancelledError, Exception):
-                            pass
-                    except Exception:
+                            # Таймаут безопасности 4 сек
+                            if time.time() - start_ts >= 4.0:
+                                break
+                    except Exception as e:
+                        # Если стрим не работает, используем цену из истории
                         pass
                     
                     # Закрываем клиент
