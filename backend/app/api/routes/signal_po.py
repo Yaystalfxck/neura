@@ -285,9 +285,17 @@ async def get_signal(
         print("✅ BinaryOptionsToolsV2 подключено!")
         
         try:
-            # Двойная задержка чтобы сервер обновил данные
+            # Ждём чтобы соединение полностью установилось и данные обновились
             print("⏳ Ожидание обновления данных...")
             await asyncio.sleep(3)
+            
+            # "Пробуждаем" соединение — первый запрос сбрасывает кэш сервера
+            print("🔄 Пробуждение соединения...")
+            try:
+                await bot_client.history("EURUSD_otc", 60)
+                await asyncio.sleep(1)
+            except:
+                pass  # Игнорируем ошибки пробуждения
             
             # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
             # Используем history() с TaskGroup — как Mastaaa1987
