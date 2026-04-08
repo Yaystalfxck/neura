@@ -258,22 +258,14 @@ async def get_signal(
 
         # BinaryOptionsToolsV2 — соединения создаются по запросу
         is_demo_mode = market.lower() == "demo"
-        print(f"\n🔄 Режим: {'демо' if is_demo_mode else 'реальный'} (pocketoptionapi_async + BinaryOptionsToolsV2)")
+        # Подключаемся ОДИН раз через BinaryOptionsToolsV2
+        from BinaryOptionsToolsV2 import PocketOptionAsync
         
-        # Подключаемся через pocketoptionapi_async (поддерживает множественные запросы)
         session_token = settings.POCKETOPTION_SESSION_TOKEN
-        uid = settings.POCKETOPTION_UID
-        ssid = f'42["auth",{{"session":"{session_token}","isDemo":0,"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
         
         print(f"\n🔌 Подключение к PO...")
-        client = AsyncPocketOptionClient(ssid=ssid, is_demo=False, enable_logging=False)
-        connected = await client.connect()
-        
-        if not connected:
-            raise FastAPIHTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Не удалось подключиться к Pocket Option"
-            )
+        client = PocketOptionAsync(ssid=session_token)
+        await client.connect()
         print("✅ Подключено!")
         
         try:
@@ -295,29 +287,29 @@ async def get_signal(
             
             assets = currency_pairs
             
-            # 🔍 Анализируем ВСЕ активы
-            print(f"\n🔍 Анализ {len(assets)} активов...")
+            # 🔍 Анализируем ВСЕ активы через history() (как Mastaaa1987)
+            print(f"\n🔍 Анализ {len(assets)} активов через BinaryOptionsToolsV2...")
             
             analyzed_signals = []
             
             for asset in assets:
                 try:
-                    # Получаем историю через pocketoptionapi_async (работает стабильно)
-                    candles = await client.get_candles(asset['id'], timeframe=60, count=100)
+                    # Получаем историю через history() — НЕ закрывает канал
+                    candles_data = await client.history(asset['id'], 60)
                     
-                    if not candles or len(candles) < 20:
+                    if not candles_data or len(candles_data) < 20:
                         print(f"   ⚠️ {asset['name']}: недостаточно данных")
                         continue
                     
-                    # Конвертируем в dict формат
+                    # Конвертируем в формат для анализа
                     history = []
-                    for c in candles:
+                    for c in candles_data:
                         history.append({
-                            'time': getattr(c, 'time', getattr(c, 'timestamp', 0)),
-                            'open': float(getattr(c, 'open', 0)),
-                            'high': float(getattr(c, 'high', 0)),
-                            'low': float(getattr(c, 'low', 0)),
-                            'close': float(getattr(c, 'close', 0)),
+                            'time': c.get('time', 0),
+                            'open': float(c.get('open', 0)),
+                            'high': float(c.get('high', 0)),
+                            'low': float(c.get('low', 0)),
+                            'close': float(c.get('close', 0)),
                         })
                     
                     # Генерируем сигнал
@@ -359,7 +351,7 @@ async def get_signal(
             print(f"   Направление: {signal.get('signal_type', '?').upper()}")
             print(f"   Уверенность: {best['confidence']:.1f}%")
             
-            # Цена = последняя свеча (самая свежая)
+            # Цена = последняя свеча (самая свежая из history)
             realtime_price = history[-1]['close']
             print(f"\n💰 ЦЕНА: {realtime_price:.5f}")
             
@@ -375,7 +367,6 @@ async def get_signal(
             print(f"❌ Ошибка: {e}")
             import traceback
             traceback.print_exc()
-            await client.disconnect()
             raise FastAPIHTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка при генерации сигнала: {str(e)}"
