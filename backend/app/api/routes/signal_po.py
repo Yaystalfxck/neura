@@ -292,7 +292,8 @@ async def get_signal(
         print("✅ Соединение установлено!")
 
         # Ждём чтобы соединение установилось (как в Mastaaa1987)
-        print("⏳ Ожидание 5 сек для получения данных от сервера...")
+        # ВАЖНО: нужно ждать ДОЛЬШЕ чтобы сервер начал слать данные
+        print("⏳ Ожидание 5 сек для инициализации WebSocket стрима...")
         await asyncio.sleep(5)
         print("✅ Ожидание завершено!")
 
@@ -332,33 +333,31 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup + history()...")
+            print(f"\n🔍 Последовательный анализ {len(currency_pairs)} активов...")
 
-            # Mastaaa1987 pattern: TaskGroup запускает ВСЕ запросы ОДНОВРЕМЕННО
-            # history() начинает стримить данные для каждого актива
-            history_tasks = {}
-            async with asyncio.TaskGroup() as tg:
-                for asset in currency_pairs:
-                    task = tg.create_task(bot_client.history(asset['id'], 60))
-                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
-            
-            # Пока TaskGroup работает, данные накапливаются
-            # Ждём 10 секунд чтобы все задачи получили данные
-            print("⏳ Получение данных 10 сек...")
-            await asyncio.sleep(10)
-            print("✅ Данные получены!")
-            
-            # Собираем результаты
-            print("📊 Сбор результатов...")
+            # Для КАЖДОГО актива создаём отдельное подключение
+            # Это гарантирует СВЕЖИЕ данные без кэширования
             analyzed_signals = []
-            
-            for asset_id, data in history_tasks.items():
-                asset = data['asset']
+
+            for asset in currency_pairs:
                 try:
-                    candles_data = await asyncio.shield(data['task'])
+                    print(f"   📡 {asset['name']}...")
+                    
+                    # Создаём отдельный клиент для этого актива
+                    asset_client = PocketOptionAsync(ssid=ssid_to_use)
+                    await asset_client.connect()
+                    
+                    # Ждём чтобы данные обновились
+                    await asyncio.sleep(3)
+                    
+                    # Получаем свечи через history() — как в Mastaaa1987
+                    candles_data = await asset_client.history(asset['id'], 60)
+                    
+                    # Закрываем клиент
+                    await asset_client.disconnect()
                     
                     if not candles_data or len(candles_data) < 20:
-                        print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
+                        print(f"   ⚠️ недостаточно данных ({len(candles_data) if candles_data else 0})")
                         continue
 
                     print(f"   ✅ {asset['name']}: {len(candles_data)} свечей")
