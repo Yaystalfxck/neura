@@ -26,6 +26,14 @@ from app.po_strategies_enhanced import (
 
 settings = get_settings()
 
+# ML генератор (singleton)
+_ml_generator = None
+def get_ml():
+    global _ml_generator
+    if _ml_generator is None:
+        _ml_generator = get_ml_generator()
+    return _ml_generator
+
 # Import select as sa_select for compatibility
 sa_select = select
 
@@ -275,8 +283,12 @@ async def get_signal(
         await asyncio.sleep(2)
 
         print("✅ BinaryOptionsToolsV2 подключено!")
-
+        
         try:
+            # Двойная задержка чтобы сервер обновил данные
+            print("⏳ Ожидание обновления данных...")
+            await asyncio.sleep(3)
+            
             # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
             # Используем history() с TaskGroup — как Mastaaa1987
             currency_pairs = [
@@ -330,40 +342,113 @@ async def get_signal(
                         })
 
                     # Генерируем сигнал
-                    signal = advanced_signal_strategy(history, asset, strategy_type)
-                    if not signal:
-                        signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
-
+                    # === HYBRID ANALYSIS: ML + Индикаторы ===
+                    
+                    # 1. Пробуем ML модель
+                    ml_signal = None
+                    ml_confidence = 0
+                    try:
+                        ml_gen = get_ml()
+                        # Конвертируем свечи в формат для ML
+                        ml_candles = []
+                        for c in history:
+                            ml_candles.append({
+                                'time': c.get('time', 0),
+                                'open': c.get('open', 0),
+                                'high': c.get('high', 0),
+                                'low': c.get('low', 0),
+                                'close': c.get('close', 0),
+                            })
+                        
+                        # Обучаем модель и получаем сигнал
+                        if len(ml_candles) >= 50:
+                            ml_result = ml_gen.generate_signal(ml_candles, asset.get('name', 'Unknown'))
+                            if ml_result:
+                                ml_signal = ml_result
+                                ml_confidence = ml_result.get('confidence', 0)
+                                print(f"      🤖 ML: {ml_result.get('direction', '?')} ({ml_confidence:.1f}%)")
+                    except Exception as e:
+                        pass  # ML не критичен, fallback на индикаторы
+                    
+                    # 2. Генерируем сигнал на основе индикаторов
+                    indicator_signal = advanced_signal_strategy(history, asset, strategy_type)
+                    if not indicator_signal:
+                        indicator_signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
+                    
+                    # 3. Выбираем лучший сигнал (ML или индикаторы)
+                    if ml_signal and ml_confidence > 60:
+                        # ML дал хороший сигнал — используем его
+                        signal = ml_signal
+                        signal_type = ml_signal.get('direction', 'call')
+                        confidence = ml_confidence
+                        signal['confidence'] = f"{int(confidence)}%"
+                        signal['strength'] = 'strong' if confidence > 80 else 'medium' if confidence > 65 else 'weak'
+                        signal['signal_type'] = signal_type
+                        signal['db_strategy'] = 'MACHINE_LEARNING'
+                        signal['ml_accuracy'] = ml_signal.get('model_accuracy', 0)
+                        print(f"      ✅ Используем ML сигнал ({confidence:.1f}%)")
+                    elif indicator_signal:
+                        # Используем индикаторы
+                        signal = indicator_signal
+                        conf_str = signal.get('confidence', '50%')
+                        indicator_conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+                        
+                        # 4. Если есть и ML и индикаторы — комбинируем
+                        if ml_signal and ml_confidence > 40:
+                            # Усредняем уверенность
+                            combined_conf = (indicator_conf * 0.6) + (ml_confidence * 0.4)
+                            
+                            # Если оба сигнала совпадают — увеличиваем уверенность
+                            ml_dir = ml_signal.get('direction', '')
+                            ind_dir = signal.get('signal_type', '')
+                            if ml_dir == ind_dir:
+                                combined_conf = min(95, combined_conf + 10)  # +10% за совпадение
+                                signal['signal_agreement'] = 'ML+Indicators AGREE'
+                            else:
+                                combined_conf = max(50, combined_conf - 5)  # -5% за разногласие
+                                signal['signal_agreement'] = 'ML vs Indicators DISAGREE'
+                            
+                            confidence = combined_conf
+                            signal['confidence'] = f"{int(confidence)}%"
+                            signal['ml_confidence'] = ml_confidence
+                            signal['indicator_confidence'] = indicator_conf
+                            print(f"      🔄 Комбинированный: ML({ml_confidence:.1f}%) + Ind({indicator_conf:.1f}%) = {confidence:.1f}%")
+                        else:
+                            confidence = indicator_conf
+                    else:
+                        signal = None
+                        confidence = 50
+                    
                     if signal:
-                        # === УЛУЧШЕННЫЙ АНАЛИЗ ===
+                        # === УЛУЧШЕННЫЙ АНАЛИЗ (дополнительные индикаторы) ===
                         stoch = calculate_stochastic(
                             [c['close'] for c in history],
                             [c['high'] for c in history],
                             [c['low'] for c in history],
                             14
                         )
-
+                        
                         cci = calculate_cci(
                             [c['high'] for c in history],
                             [c['low'] for c in history],
                             [c['close'] for c in history],
                             20
                         )
-
+                        
                         pattern = detect_candlestick_pattern(
                             [c['open'] for c in history],
                             [c['high'] for c in history],
                             [c['low'] for c in history],
                             [c['close'] for c in history]
                         )
-
+                        
                         support, resistance = calculate_support_resistance(
                             [c['close'] for c in history], 20
                         )
-
-                        # Корректируем уверенность
-                        original_conf = float(signal.get('confidence', '50%').replace('%', ''))
-
+                        
+                        # Корректируем уверенность на основе дополнительных индикаторов
+                        original_conf = confidence
+                        
                         if signal['signal_type'] == 'call' and stoch < 30:
                             original_conf += 5
                         elif signal['signal_type'] == 'put' and stoch > 70:
@@ -372,35 +457,39 @@ async def get_signal(
                             original_conf -= 5
                         elif signal['signal_type'] == 'put' and stoch < 30:
                             original_conf -= 5
-
+                        
                         if signal['signal_type'] == 'call' and cci < -100:
                             original_conf += 5
                         elif signal['signal_type'] == 'put' and cci > 100:
                             original_conf += 5
-
+                        
                         if pattern['type'] == signal['signal_type']:
                             original_conf += pattern['strength'] * 10
-
+                        
                         current_price = history[-1]['close']
                         dist_to_support = abs(current_price - support) / current_price if current_price > 0 else 1
                         dist_to_resistance = abs(current_price - resistance) / current_price if current_price > 0 else 1
-
+                        
                         if signal['signal_type'] == 'call' and dist_to_support < 0.002:
                             original_conf += 5
                         elif signal['signal_type'] == 'put' and dist_to_resistance < 0.002:
                             original_conf += 5
-
+                        
+                        # Ограничиваем 50-95%
                         original_conf = max(50, min(95, original_conf))
                         confidence = original_conf
-
+                        
+                        # Обновляем силу сигнала
                         if confidence > 80:
                             signal['strength'] = 'strong'
                         elif confidence > 65:
                             signal['strength'] = 'medium'
                         else:
                             signal['strength'] = 'weak'
-
+                        
                         signal['confidence'] = f"{int(confidence)}%"
+                        
+                        # Добавляем дополнительные индикаторы в ответ
                         signal['enhanced_indicators'] = {
                             'stochastic_k': round(stoch, 2),
                             'cci': round(cci, 2),
@@ -408,13 +497,25 @@ async def get_signal(
                             'support': round(support, 5),
                             'resistance': round(resistance, 5),
                             'dist_to_support_pct': f"{dist_to_support*100:.3f}%",
-                            'dist_to_resistance_pct': f"{dist_to_resistance*100:.3f}%"
+                            'dist_to_resistance_pct': f"{dist_to_resistance*100:.3f}%",
+                            'ml_used': ml_signal is not None,
+                            'ml_confidence': ml_confidence if ml_signal else 0
                         }
-
+                        
                         # РЕАЛЬНАЯ цена из BinaryOptionsToolsV2 (последняя свеча)
                         realtime_price = history[-1]['close']
                         signal['current_price'] = float(realtime_price)
-
+                        
+                        # Проверяем время последней свечи
+                        last_candle_time = history[-1].get('time', 0)
+                        if last_candle_time:
+                            candle_dt = datetime.utcfromtimestamp(last_candle_time)
+                            age_seconds = (datetime.utcnow() - candle_dt).total_seconds()
+                            age_marker = "🟢" if age_seconds < 60 else "🟡" if age_seconds < 120 else "🔴"
+                            print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) | price:{realtime_price:.5f} | age:{age_seconds:.0f}s {age_marker}")
+                        else:
+                            print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) | price:{realtime_price:.5f}")
+                        
                         analyzed_signals.append({
                             'asset': asset,
                             'signal': signal,
@@ -422,8 +523,6 @@ async def get_signal(
                             'confidence': confidence,
                             'realtime_price': realtime_price
                         })
-
-                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) | price:{realtime_price:.5f} [stoch:{stoch:.1f} cci:{cci:.1f}]")
 
                 except Exception as e:
                     print(f"   ❌ {asset['name']}: {e}")
