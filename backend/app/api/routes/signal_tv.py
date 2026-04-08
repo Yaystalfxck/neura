@@ -463,46 +463,88 @@ async def get_signal_tradingview(
 
 
 async def get_demo_signal(current_user: User, db: AsyncSession, timeframe: str, strategy_type: str):
-    """Fallback на демо-данные"""
-    import random
-
-    demo_assets = [
-        {"name": "EUR/USD", "payout": 92},
-        {"name": "GBP/USD", "payout": 88},
-        {"name": "USD/JPY", "payout": 92},
-    ]
-
-    best_asset = random.choice(demo_assets)
-    signal_type = random.choice(["call", "put"])
-    confidence = random.randint(70, 90)
-
-    # Экспирация: 70% - 5 минут, 30% - адаптивно (3-10 мин)
-    if random.random() < 0.7:
-        expiry_minutes = 5
-    elif random.random() < 0.5:
-        expiry_minutes = 3
-    else:
-        expiry_minutes = random.choice([7, 8, 10])
-
-    signal = {
-        "signal_type": signal_type,
-        "strength": "strong" if confidence > 80 else "medium",
-        "confidence": f"{confidence}%",
-        "current_price": random.uniform(1.08, 1.12),
-        "expiry_minutes": expiry_minutes,  # 3-10 мин, но в основном 5 мин
-        "pair_name": best_asset['name'],
-        "payout": f"{best_asset['payout']}%",
-        "db_strategy": "INDICATORS",
-        "data_source": "demo"
-    }
+    """Fallback на демо-данные с полным анализом"""
+    import math
+    import time
+    
+    # Генерируем "фейковые" свечи на основе текущего времени
+    # Это делает сигнал детерминированным (не случайным) для конкретного момента
+    now_ts = int(time.time())
+    base_price = 1.0850
+    
+    # Создаем фейковые свечи
+    demo_candles = []
+    for i in range(100):
+        ts = now_ts - (100 - i) * 60
+        # Детерминированная "цена" на основе времени
+        price_variation = math.sin(i / 10) * 0.005 + math.cos(i / 5) * 0.003
+        open_p = base_price + price_variation
+        close_p = open_p + (math.sin(i / 3) * 0.002)
+        high_p = max(open_p, close_p) + 0.001
+        low_p = min(open_p, close_p) - 0.001
+        
+        demo_candles.append({
+            'time': ts,
+            'open': open_p,
+            'high': high_p,
+            'low': low_p,
+            'close': close_p
+        })
+    
+    # Анализируем фейковые свечи через ML или индикаторы
+    signal = None
+    if strategy_type.lower() in ['ml', 'neural_ai', 'neural']:
+        try:
+            ml_gen = get_ml_generator()
+            ml_result = ml_gen.generate_signal(demo_candles, "EUR/USD Demo")
+            if ml_result and ml_result.get('confidence', 0) > 0.55:
+                direction = ml_result.get('direction', 'call')
+                confidence_pct = ml_result.get('confidence', 0) * 100
+                signal = {
+                    "signal_type": direction,
+                    "strength": "strong" if confidence_pct > 75 else "medium",
+                    "confidence": f"{confidence_pct:.0f}%",
+                    "current_price": demo_candles[-1]['close'],
+                    "expiry_minutes": 5,
+                    "pair_name": "EUR/USD",
+                    "trend": ml_result.get('trend', 'neutral'),
+                    "rsi": ml_result.get('rsi', 50),
+                    "pattern_detected": "ML_DEMO",
+                    "payout": "85%",
+                    "db_strategy": "MACHINE_LEARNING",
+                    "data_source": "demo_ml"
+                }
+        except:
+            pass
+            
+    if signal is None:
+        # Используем индикаторы на фейковых свечах
+        from app.po_strategies_advanced import advanced_signal_strategy
+        demo_asset = {"name": "EUR/USD", "payout": 85}
+        signal = advanced_signal_strategy(demo_candles, demo_asset, "indicators")
+        if signal:
+            signal['data_source'] = 'demo_indicators'
+        else:
+            # Фоллбэк если совсем ничего не сработало
+            signal = {
+                "signal_type": "call",
+                "strength": "medium",
+                "confidence": "65%",
+                "current_price": demo_candles[-1]['close'],
+                "expiry_minutes": 5,
+                "pair_name": "EUR/USD",
+                "payout": "85%",
+                "db_strategy": "DEMO",
+                "data_source": "demo_fallback"
+            }
     
     return {
         "success": True,
         "signal": format_tv_signal_response(signal, current_user.balance),
         "balance": current_user.balance,
         "market_data_summary": {
-            "assets_analyzed": len(demo_assets),
-            "data_source": "demo"
+            "assets_analyzed": 1,
+            "data_source": "demo_with_analysis"
         }
     }
 

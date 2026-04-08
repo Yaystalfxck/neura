@@ -568,37 +568,73 @@ def generate_fallback_signal(assets) -> dict:
 
 
 def generate_demo_signal(strategy_type: str, min_payout: int) -> dict:
-    """Генерация демо-сигнала когда PO API недоступен"""
-    now = datetime.utcnow()
+    """Генерация демо-сигнала с полным анализом"""
+    import math
+    import time
     
-    # Демо-активы
-    demo_assets = [
-        {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 92},
-        {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
-        {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 92},
-    ]
+    # Генерируем "фейковые" свечи
+    now_ts = int(time.time())
+    base_price = 0.9250 # AUD/CAD OTC пример
     
-    best_asset = max(demo_assets, key=lambda x: x['payout'])
+    demo_candles = []
+    for i in range(100):
+        ts = now_ts - (100 - i) * 60
+        price_variation = math.sin(i / 8) * 0.004 + math.cos(i / 6) * 0.002
+        open_p = base_price + price_variation
+        close_p = open_p + (math.sin(i / 4) * 0.0015)
+        high_p = max(open_p, close_p) + 0.0008
+        low_p = min(open_p, close_p) - 0.0008
+        
+        demo_candles.append({
+            'time': ts,
+            'open': open_p,
+            'high': high_p,
+            'low': low_p,
+            'close': close_p
+        })
     
-    # Генерируем случайный сигнал на основе стратегии
-    import random
-    signal_type = random.choice(["call", "put"])
-    confidence = random.randint(65, 85)
-    
-    return {
-        "signal_type": signal_type,
-        "strength": "strong" if confidence > 75 else "medium",
-        "confidence": f"{confidence}%",
-        "current_price": 1.0850 + random.uniform(-0.01, 0.01),
-        "expiry_minutes": 3,
-        "expiry_timestamp": (now + timedelta(minutes=3)).isoformat(),
-        "valid_until": (now + timedelta(seconds=30)).isoformat(),
-        "pair_name": best_asset['name'],
-        "trend": "bullish" if signal_type == "call" else "bearish",
-        "rsi": random.randint(30, 70),
-        "pattern_detected": strategy_type,
-        "payout": f"{best_asset['payout']}%"
-    }
+    # Анализируем через ML или индикаторы
+    signal = None
+    if strategy_type.lower() in ['ml', 'neural_ai', 'neural']:
+        try:
+            ml_gen = get_ml()
+            ml_result = ml_gen.generate_signal(demo_candles, "AUD/CAD OTC Demo")
+            if ml_result and ml_result.get('confidence', 0) > 0.55:
+                direction = ml_result.get('direction', 'call')
+                confidence_pct = ml_result.get('confidence', 0) * 100
+                signal = {
+                    "signal_type": direction,
+                    "strength": "strong" if confidence_pct > 75 else "medium",
+                    "confidence": f"{confidence_pct:.0f}%",
+                    "current_price": demo_candles[-1]['close'],
+                    "expiry_minutes": 5,
+                    "pair_name": "AUD/CAD OTC",
+                    "trend": ml_result.get('trend', 'neutral'),
+                    "rsi": ml_result.get('rsi', 50),
+                    "pattern_detected": "ML_DEMO",
+                    "payout": "90%",
+                    "db_strategy": "MACHINE_LEARNING"
+                }
+        except:
+            pass
+            
+    if signal is None:
+        # Индикаторы
+        demo_asset = {"name": "AUD/CAD OTC", "payout": 90}
+        signal = advanced_signal_strategy(demo_candles, demo_asset, "indicators")
+        if not signal:
+            signal = {
+                "signal_type": "call",
+                "strength": "medium",
+                "confidence": "65%",
+                "current_price": demo_candles[-1]['close'],
+                "expiry_minutes": 5,
+                "pair_name": "AUD/CAD OTC",
+                "payout": "90%",
+                "db_strategy": "DEMO"
+            }
+
+    return signal
 
 
 def generate_signal_from_candles(
