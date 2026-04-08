@@ -409,15 +409,10 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # === ГЕНЕРАЦИЯ СИГНАЛА (CONNECTION POOL) ===
+        # === ГЕНЕРАЦИЯ СИГНАЛА (СЕССИОННАЯ МОДЕЛЬ) ===
         print(f"\n🚀 Начинаем генерацию сигнала...")
-
-        # Получаем клиент из пула (переиспользуем соединение)
-        bot_client = await get_pooled_ws_client()
-
-        # Обновляем время активности, чтобы соединение не закрылось
-        global _global_ws_last_active
-        _global_ws_last_active = time.time()
+        # BinaryOptionsToolsV2: один клиент = один запрос свечей
+        # Создаем/закрываем клиента для каждого актива отдельно
 
         analyzed_candidates = []
 
@@ -431,16 +426,48 @@ async def get_signal(
             {"id": "GBPJPY_otc", "name": "GBP/JPY OTC"}, {"id": "AUDJPY_otc", "name": "AUD/JPY OTC"},
         ]
 
-        print("✅ Используем соединение из пула для сканирования...")
+        print("✅ Начинаем сканирование активов...")
 
-        # 2. Цикл анализа с авто-восстановлением
-        reconnect_attempts = 0
-        max_reconnect_attempts = 2  # Максимум 2 попытки переподключения
-        
+        # 2. Цикл анализа - для каждого актива создаем временного клиента
+        # BinaryOptionsToolsV2: один клиент = один запрос свечей (сессионная модель)
+        failed_assets = 0
+        max_failed = 5  # Если 5 активов подряд провалились - прекращаем
+
         for asset in currency_pairs:
+            client = None
             try:
+                # Создаем временного клиента для получения свечей
+                ssid = settings.POCKETOPTION_SESSION_TOKEN
+                is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
+
+                if USE_BOT_V2:
+                    client = PocketOptionAsync(ssid=ssid)
+                else:
+                    client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+
+                await client.connect()
+                
+                if USE_BOT_V2:
+                    try:
+                        await asyncio.wait_for(
+                            client.wait_for_assets(timeout=30.0),
+                            timeout=35.0
+                        )
+                    except Exception as init_err:
+                        print(f"   ⚠️ {asset['name']}: ошибка инициализации {init_err}")
+                        # Пробуем продолжить
+                        await asyncio.sleep(1)
+
                 # Запрос свечей (10000 сек истории)
-                hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
+                hist_candles = await client.get_candles(asset['id'], 60, 10000)
+
+                # Сразу закрываем клиента - он больше не нужен
+                if client is not None:
+                    try:
+                        await client.shutdown()
+                    except:
+                        pass
+                    client = None
 
                 if not hist_candles or len(hist_candles) < 20:
                     continue
@@ -496,61 +523,25 @@ async def get_signal(
                         'asset': asset, 'signal': signal,
                         'confidence': conf, 'volatility_pct': volatility_pct
                     })
+                    print(f"   ✅ {asset['name']}: сигнал {signal.get('signal_type', '?')} ({conf}%)")
 
             except Exception as e:
                 err_msg = str(e).lower()
-                # АВТО-ПЕРЕПОДКЛЮЧЕНИЕ при разрыве
-                if ("half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg or "channel" in err_msg) and reconnect_attempts < max_reconnect_attempts:
-                    reconnect_attempts += 1
-                    print(f"   ⚠️ Разрыв связи! Попытка переподключения {reconnect_attempts}/{max_reconnect_attempts}...")
-
-                    # Сбрасываем пул, чтобы следующий запрос создал новый
-                    _global_ws_client = None
-                    
-                    # Останавливаем keepalive
-                    global _global_keepalive_task
-                    if _global_keepalive_task and not _global_keepalive_task.done():
-                        _global_keepalive_task.cancel()
-                        try:
-                            await _global_keepalive_task
-                        except asyncio.CancelledError:
-                            pass
-
-                    # Для ТЕКУЩЕГО запроса пытаемся переподключиться
+                failed_assets += 1
+                print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+                
+                # Безопасно закрываем клиента при ошибке
+                if client is not None:
                     try:
-                        bot_client = await get_pooled_ws_client()
-                        _global_ws_last_active = time.time() # Обновляем таймер
-                        
-                        # Небольшая пауза после подключения
-                        await asyncio.sleep(2)
+                        await client.shutdown()
+                    except:
+                        pass
+                    client = None
 
-                        hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
-                        if hist_candles and len(hist_candles) >= 20:
-                            clean_candles = []
-                            for c in hist_candles:
-                                try:
-                                    if isinstance(c, dict): clean_candles.append({'time': c.get('time',0), 'open':float(c.get('open',0)), 'high':float(c.get('high',0)), 'low':float(c.get('low',0)), 'close':float(c.get('close',0))})
-                                    else: clean_candles.append({'time': getattr(c,'time',0), 'open':float(getattr(c,'open',0)), 'high':float(getattr(c,'high',0)), 'low':float(getattr(c,'low',0)), 'close':float(getattr(c,'close',0))})
-                                except: pass
-                            if clean_candles:
-                                signal = advanced_signal_strategy(clean_candles, asset, "indicators")
-                                if signal:
-                                    conf_str = signal.get('confidence', '50%')
-                                    conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-                                    closes = [c['close'] for c in clean_candles[-20:]]
-                                    volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
-                                    analyzed_candidates.append({'asset': asset, 'signal': signal, 'confidence': conf, 'volatility_pct': volatility_pct})
-                                    print(f"   ✅ После переподключения: сигнал получен!")
-                                    reconnect_attempts = 0  # Сбрасываем счетчик после успеха
-                    except Exception as retry_err:
-                        print(f"   ❌ Ошибка после переподключения: {retry_err}")
-                        # Если снова ошибка - прекращаем попытки
-                        reconnect_attempts = max_reconnect_attempts
-                else:
-                    if reconnect_attempts >= max_reconnect_attempts:
-                        print(f"   ❌ Превышен лимит переподключений, пропускаем {asset['id']}")
-                    else:
-                        print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+                # Если слишком много ошибок подряд - прекращаем
+                if failed_assets >= max_failed:
+                    print(f"   ⚠️ Слишком много ошибок ({failed_assets}), прекращаем сканирование")
+                    break
 
         # ВАЖНО: Мы НЕ закрываем соединение (bot_client.disconnect()) здесь.
         # Оно остается в пуле (_global_ws_client) для следующих пользователей.
@@ -569,17 +560,40 @@ async def get_signal(
         print(f"   📉 Волатильность: {volatility:.3f}%")
 
         # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ ===
-        # Используем ТО ЖЕ самое соединение из пула, чтобы не создавать лишних подключений
+        # Создаем временного клиента для получения свежей цены
         print(f"   💰 Получение реальной цены...")
         realtime_price = 0.0
 
+        price_client = None
         try:
-            # Запрашиваем свежие свечи (1 минута) через активный клиент пула
-            last_candles = await bot_client.get_candles(best_asset['id'], 60, 100)
+            ssid = settings.POCKETOPTION_SESSION_TOKEN
+            is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
+
+            if USE_BOT_V2:
+                price_client = PocketOptionAsync(ssid=ssid)
+            else:
+                price_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+
+            await price_client.connect()
+            
+            if USE_BOT_V2:
+                try:
+                    await asyncio.wait_for(price_client.wait_for_assets(timeout=30.0), timeout=35.0)
+                except:
+                    await asyncio.sleep(1)
+
+            # Запрашиваем свежие свечи (1 минута)
+            last_candles = await price_client.get_candles(best_asset['id'], 60, 100)
             if last_candles and len(last_candles) > 0:
                 realtime_price = float(last_candles[-1].get('close', 0))
         except Exception as e:
             print(f"   ⚠️ Ошибка получения цены: {e}")
+        finally:
+            if price_client is not None:
+                try:
+                    await price_client.shutdown()
+                except:
+                    pass
 
         if realtime_price > 0:
             signal['current_price'] = realtime_price
@@ -673,16 +687,6 @@ async def get_signal(
         print(f"❌ Ошибка: {e}")
         import traceback
         traceback.print_exc()
-
-        # ВАЖНО: НЕ закрываем bot_client здесь!
-        # Это клиент из пула, он переиспользуется для следующих запросов.
-        # Пул сам управляет жизненным циклом соединения.
-        # Только при критической ошибке соединения - сбрасываем пул:
-        try:
-            _global_ws_client = None  # Сбрасываем, следующий запрос создаст новый
-            print("⚠️ Пул сброшен из-за критической ошибки")
-        except:
-            pass
 
         raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
