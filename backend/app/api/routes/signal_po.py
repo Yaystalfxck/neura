@@ -473,11 +473,18 @@ async def get_signal(
                 bot_client = PocketOptionAsync(ssid=settings.POCKETOPTION_SESSION_TOKEN)
                 await bot_client.connect()
                 
+                # Преобразуем имя актива для BinaryOptionsToolsV2
+                # pocketoptionapi_async: "GBPUSD_otc"
+                # BinaryOptionsToolsV2: может требовать другой формат
+                bot_asset_id = best_asset['id'].replace('_otc', '-otc')
+                
+                print(f"   Подписка на {bot_asset_id}...")
+                
                 # Подписываемся на стрим для лучшего актива
                 real_prices = []
                 start_ts = time.time()
                 
-                async for candle in await bot_client.subscribe_symbol(best_asset['id']):
+                async for candle in await bot_client.subscribe_symbol(bot_asset_id):
                     price_raw = candle.get('close', candle.get('price', 0))
                     try:
                         real_prices.append(float(price_raw))
