@@ -1,6 +1,5 @@
 """
 Utility for calculating signal limits based on user balance.
-Centralized logic to avoid duplication across route files.
 """
 
 def get_signal_limits(user_balance: float, role: str = "user"):

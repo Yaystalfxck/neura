@@ -23,7 +23,7 @@ from app.po_strategies_enhanced import (
     detect_candlestick_pattern,
     calculate_support_resistance
 )
-from app.utils.signal_limits import get_signal_limits, get_next_limit_balance
+from app.signal_limits import get_signal_limits, get_next_limit_balance
 
 settings = get_settings()
 
