@@ -332,16 +332,24 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов (последовательно)...")
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов (подписка + свечи)...")
 
-            # Получаем данные ПОСЛЕДОВАТЕЛЬНО через get_candles() — как в test_po_websocket_realtime.py
-            # TaskGroup с history() даёт устаревшие цены!
+            # Для каждого актива: подписка → получение свечей → анализ
             analyzed_signals = []
 
             for asset in currency_pairs:
                 try:
                     print(f"   📡 {asset['name']}...")
-                    # get_candles() даёт СВЕЖИЕ данные как в тесте
+                    
+                    # Сначала подписываемся на актив чтобы сервер начал слать данные
+                    try:
+                        sub_task = asyncio.create_task(bot_client.subscribe_symbol(asset['id']))
+                        await asyncio.sleep(1.5)  # Ждём 1.5 сек чтобы данные накопились
+                        sub_task.cancel()  # Отменяем подписку
+                    except:
+                        pass
+                    
+                    # Теперь получаем накопленные свечи
                     candles_data = await bot_client.get_candles(asset['id'], 60, 100)
 
                     if not candles_data or len(candles_data) < 20:
