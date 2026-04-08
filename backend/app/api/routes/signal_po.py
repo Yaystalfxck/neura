@@ -279,6 +279,11 @@ async def get_signal(
         print("✅ Подключено!")
         
         try:
+            # Очищаем кэш свечей чтобы получить свежие данные!
+            if hasattr(client, '_candles_cache'):
+                client._candles_cache.clear()
+                print("🗑️ Кэш свечей очищен")
+            
             # Анализируем ВСЕ валютные пары
             currency_pairs = [
                 {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
