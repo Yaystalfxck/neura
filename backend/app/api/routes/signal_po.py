@@ -256,16 +256,23 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # BinaryOptionsToolsV2 — соединения создаются по запросу
+        # pocketoptionapi_async — держит ОДНО соединение для всех запросов
+        # (как Mastaaa1987 API с чистыми websockets)
         is_demo_mode = market.lower() == "demo"
-        # Подключаемся ОДИН раз через BinaryOptionsToolsV2
-        from BinaryOptionsToolsV2 import PocketOptionAsync
         
         session_token = settings.POCKETOPTION_SESSION_TOKEN
+        uid = settings.POCKETOPTION_UID
+        ssid = f'42["auth",{{"session":"{session_token}","isDemo":0,"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
         
-        print(f"\n🔌 Подключение к PO...")
-        client = PocketOptionAsync(ssid=session_token)
-        await client.connect()
+        print(f"\n🔌 Подключение к PO (pocketoptionapi_async — одно соединение)...")
+        client = AsyncPocketOptionClient(ssid=ssid, is_demo=False, enable_logging=False)
+        connected = await client.connect()
+        
+        if not connected:
+            raise FastAPIHTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Не удалось подключиться к Pocket Option"
+            )
         print("✅ Подключено!")
         
         try:
@@ -287,29 +294,29 @@ async def get_signal(
             
             assets = currency_pairs
             
-            # 🔍 Анализируем ВСЕ активы через history() (как Mastaaa1987)
-            print(f"\n🔍 Анализ {len(assets)} активов через BinaryOptionsToolsV2...")
+            # 🔍 Анализируем ВСЕ активы через pocketoptionapi_async
+            print(f"\n🔍 Анализ {len(assets)} активов...")
             
             analyzed_signals = []
             
             for asset in assets:
                 try:
-                    # Получаем историю через history() — НЕ закрывает канал
-                    candles_data = await client.history(asset['id'], 60)
+                    # get_candles() через pocketoptionapi_async работает через ОДНО соединение
+                    candles = await client.get_candles(asset['id'], timeframe=60, count=100)
                     
-                    if not candles_data or len(candles_data) < 20:
+                    if not candles or len(candles) < 20:
                         print(f"   ⚠️ {asset['name']}: недостаточно данных")
                         continue
                     
-                    # Конвертируем в формат для анализа
+                    # Конвертируем в dict формат
                     history = []
-                    for c in candles_data:
+                    for c in candles:
                         history.append({
-                            'time': c.get('time', 0),
-                            'open': float(c.get('open', 0)),
-                            'high': float(c.get('high', 0)),
-                            'low': float(c.get('low', 0)),
-                            'close': float(c.get('close', 0)),
+                            'time': getattr(c, 'time', getattr(c, 'timestamp', 0)),
+                            'open': float(getattr(c, 'open', 0)),
+                            'high': float(getattr(c, 'high', 0)),
+                            'low': float(getattr(c, 'low', 0)),
+                            'close': float(getattr(c, 'close', 0)),
                         })
                     
                     # Генерируем сигнал
@@ -351,7 +358,7 @@ async def get_signal(
             print(f"   Направление: {signal.get('signal_type', '?').upper()}")
             print(f"   Уверенность: {best['confidence']:.1f}%")
             
-            # Цена = последняя свеча (самая свежая из history)
+            # Цена = последняя свеча (самая свежая)
             realtime_price = history[-1]['close']
             print(f"\n💰 ЦЕНА: {realtime_price:.5f}")
             
@@ -367,6 +374,7 @@ async def get_signal(
             print(f"❌ Ошибка: {e}")
             import traceback
             traceback.print_exc()
+            await client.disconnect()
             raise FastAPIHTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка при генерации сигнала: {str(e)}"
