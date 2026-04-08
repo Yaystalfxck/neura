@@ -262,31 +262,34 @@ async def get_signal(
         
         print(f"📈 BinaryOptionsToolsV2 режим — анализ всех активов...")
         
-        # Анализируем ВСЕ валютные пары (без фильтра по payout)
-        currency_pairs = [
-            {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
-            {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
-            {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 90},
-            {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 90},
-            {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 90},
-            {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
-            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 90},
-            {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 88},
-            {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
-            {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 88},
-            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
-            {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
-            {"id": "EURCHF_otc", "name": "EUR/CHF OTC", "payout": 82},
-            {"id": "GBPCAD_otc", "name": "GBP/CAD OTC", "payout": 88},
-            {"id": "AUDCHF_otc", "name": "AUD/CHF OTC", "payout": 85},
-            {"id": "CADJPY_otc", "name": "CAD/JPY OTC", "payout": 88},
-            {"id": "CHFJPY_otc", "name": "CHF/JPY OTC", "payout": 85},
-            {"id": "NZDCAD_otc", "name": "NZD/CAD OTC", "payout": 85},
-            {"id": "NZDCHF_otc", "name": "NZD/CHF OTC", "payout": 82},
-            {"id": "NZDJPY_otc", "name": "NZD/JPY OTC", "payout": 85},
-        ]
+        # Подключаемся ОДИН раз и используем для всех активов
+        from BinaryOptionsToolsV2 import PocketOptionAsync
         
-        assets = currency_pairs  # Все активы для анализа
+        session_token = settings.POCKETOPTION_SESSION_TOKEN
+        
+        print(f"\n🔌 Подключение к PO...")
+        client = PocketOptionAsync(ssid=session_token)
+        await client.connect()
+        print("✅ Подключено!")
+        
+        try:
+            # Анализируем ВСЕ валютные пары
+            currency_pairs = [
+                {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
+                {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
+                {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 90},
+                {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 90},
+                {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 90},
+                {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
+                {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 90},
+                {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 88},
+                {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
+                {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 88},
+                {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
+                {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
+            ]
+            
+            assets = currency_pairs
         
         # 🔍 Анализируем ВСЕ активы и выбираем с максимальной уверенностью
         print(f"\n🔍 Анализ {len(assets)} активов для выбора лучшего сигнала...")
@@ -295,12 +298,23 @@ async def get_signal(
         
         for asset in assets:
             try:
-                # Получаем историю для анализа
-                history = await _po_pool.get_historical_candles(asset['id'], timeframe=60, count=100)
+                # Получаем историю через ПОСТОЯННОЕ соединение
+                candles_data = await client.get_candles(asset['id'], 60, 100)
                 
-                if not history or len(history) < 20:
-                    print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(history) if history else 0})")
+                if not candles_data or len(candles_data) < 20:
+                    print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
                     continue
+                
+                # Конвертируем в формат для анализа
+                history = []
+                for c in candles_data:
+                    history.append({
+                        'time': c.get('time', 0),
+                        'open': float(c.get('open', 0)),
+                        'high': float(c.get('high', 0)),
+                        'low': float(c.get('low', 0)),
+                        'close': float(c.get('close', 0)),
+                    })
                 
                 # Генерируем сигнал для этого актива
                 signal = advanced_signal_strategy(history, asset, strategy_type)
@@ -330,6 +344,7 @@ async def get_signal(
         
         if not analyzed_signals:
             print("❌ Не удалось проанализировать ни один актив")
+            await client.disconnect()
             raise FastAPIHTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Не удалось сгенерировать сигнал"
@@ -349,13 +364,34 @@ async def get_signal(
 
         # Получаем РЕАЛЬНУЮ текущую цену для лучшего актива
         print(f"\n💰 Получение РЕАЛЬНОЙ цены для {best_asset['name']}...")
-        realtime_price = await _po_pool.get_realtime_price(best_asset['id'], timeout=3.0)
+        realtime_price = None
         
-        if realtime_price:
+        realtime_prices = []
+        import time
+        start_time = time.time()
+        
+        async for candle in await client.subscribe_symbol(best_asset['id']):
+            price_raw = candle.get('close', candle.get('price', 0))
+            try:
+                price = float(price_raw)
+                realtime_prices.append(price)
+            except:
+                pass
+            
+            if time.time() - start_time >= 3.0:
+                break
+        
+        if realtime_prices:
+            realtime_price = realtime_prices[-1]
             print(f"✅ РЕАЛЬНАЯ ЦЕНА: {realtime_price:.5f}")
         else:
             realtime_price = history[-1]['close']
             print(f"⚠️ Real-time не получен, используем историю: {realtime_price:.5f}")
+        
+        # Закрываем соединение
+        print(f"\n🔌 Отключение...")
+        await client.disconnect()
+        print("✅ Отключено!")
 
         # Обновляем цену в сигнале
         signal['current_price'] = float(realtime_price)
