@@ -292,8 +292,8 @@ async def get_signal(
         print("✅ Соединение установлено!")
 
         # Ждём чтобы соединение установилось (как в Mastaaa1987)
-        print("⏳ Ожидание 2 сек...")
-        await asyncio.sleep(2)
+        print("⏳ Ожидание 5 сек для получения данных от сервера...")
+        await asyncio.sleep(5)
         print("✅ Ожидание завершено!")
 
         print("✅ BinaryOptionsToolsV2 подключено!")
@@ -332,23 +332,33 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов (последовательно)...")
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup + history()...")
 
-            # Получаем данные ПОСЛЕДОВАТЕЛЬНО через get_candles_advanced()
-            # Передаём текущее время чтобы НЕ получать кэшированные данные!
-            import time
+            # Mastaaa1987 pattern: TaskGroup запускает ВСЕ запросы ОДНОВРЕМЕННО
+            # history() начинает стримить данные для каждого актива
+            history_tasks = {}
+            async with asyncio.TaskGroup() as tg:
+                for asset in currency_pairs:
+                    task = tg.create_task(bot_client.history(asset['id'], 60))
+                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
+            
+            # Пока TaskGroup работает, данные накапливаются
+            # Ждём 10 секунд чтобы все задачи получили данные
+            print("⏳ Получение данных 10 сек...")
+            await asyncio.sleep(10)
+            print("✅ Данные получены!")
+            
+            # Собираем результаты
+            print("📊 Сбор результатов...")
             analyzed_signals = []
-
-            for asset in currency_pairs:
+            
+            for asset_id, data in history_tasks.items():
+                asset = data['asset']
                 try:
-                    print(f"   📡 {asset['name']}...")
-                    # get_candles_advanced(asset, period, offset, current_time)
-                    # Передаём текущее время → сервер возвращает СВЕЖИЕ данные
-                    current_ts = int(time.time())
-                    candles_data = await bot_client.get_candles_advanced(asset['id'], 60, 9000, current_ts)
-
+                    candles_data = await asyncio.shield(data['task'])
+                    
                     if not candles_data or len(candles_data) < 20:
-                        print(f"   ⚠️ недостаточно данных")
+                        print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
                         continue
 
                     print(f"   ✅ {asset['name']}: {len(candles_data)} свечей")
