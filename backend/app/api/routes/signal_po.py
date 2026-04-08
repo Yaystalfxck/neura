@@ -335,32 +335,42 @@ async def get_signal(
 
             print(f"\n🔍 Анализ {len(currency_pairs)} активов...")
 
-            # Для каждого актива: получаем исторические свечи + реальную цену через стрим
+            # Для каждого актива: получаем историю + реальную цену через ОТДЕЛЬНОЕ подключение
+            # (как в test_po_websocket_realtime.py — одно подключение = один актив)
             analyzed_signals = []
 
             for asset in currency_pairs:
                 try:
                     print(f"   📡 {asset['name']}...")
                     
+                    # Создаём отдельный клиент для этого актива (как в тесте!)
+                    asset_client = PocketOptionAsync(ssid=ssid_to_use)
+                    await asset_client.connect()
+                    
+                    # Ждём чтобы соединение установилось
+                    await asyncio.sleep(2)
+                    
                     # 1. Получаем исторические свечи для анализа
-                    hist_candles = await bot_client.history(asset['id'], 60)
+                    hist_candles = await asset_client.history(asset['id'], 60)
                     
                     if not hist_candles or len(hist_candles) < 20:
-                        print(f"   ⚠️ недостаточно исторических данных")
+                        print(f"   ⚠️ недостаточно исторических данных ({len(hist_candles) if hist_candles else 0})")
+                        await asset_client.disconnect()
                         continue
                     
-                    # 2. Получаем РЕАЛЬНУЮ текущую цену через стрим (как в тесте)
+                    # 2. Получаем РЕАЛЬНУЮ текущую цену через стрим (как в тесте!)
                     real_prices = []
                     try:
-                        sub_task = asyncio.create_task(bot_client.subscribe_symbol(asset['id']))
-                        # Ждём 2 секунды чтобы получить несколько реальных цен
+                        sub_task = asyncio.create_task(asset_client.subscribe_symbol(asset['id']))
+                        # Ждём 3 секунды чтобы получить реальные цены
+                        start_ts = time.time()
                         async for candle in sub_task:
                             price = candle.get('close', candle.get('price', 0))
                             try:
                                 real_prices.append(float(price))
                             except:
                                 pass
-                            if len(real_prices) >= 5:
+                            if time.time() - start_ts >= 3.0:
                                 break
                         sub_task.cancel()
                         try:
@@ -370,9 +380,12 @@ async def get_signal(
                     except Exception:
                         pass
                     
+                    # Закрываем клиент
+                    await asset_client.disconnect()
+                    
                     # Используем последнюю реальную цену
                     if real_prices:
-                        realtime_price = float(real_prices[-1])
+                        realtime_price = real_prices[-1]
                         print(f"   ✅ {asset['name']}: {len(hist_candles)} свечей | цена: {realtime_price:.5f} ({len(real_prices)} тиков)")
                     else:
                         realtime_price = float(hist_candles[-1].get('close', 0))
