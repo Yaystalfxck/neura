@@ -445,21 +445,27 @@ async def get_signal(
                 else:
                     client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
 
+                print(f"   🔌 {asset['name']}: подключение...")
                 await client.connect()
                 
                 if USE_BOT_V2:
                     try:
+                        # Уменьшаем timeout до 15 сек чтобы не ждать зря
+                        print(f"   ⏳ {asset['name']}: ожидание активов...")
                         await asyncio.wait_for(
-                            client.wait_for_assets(timeout=30.0),
-                            timeout=35.0
+                            client.wait_for_assets(timeout=15.0),
+                            timeout=18.0
                         )
+                        print(f"   ✅ {asset['name']}: активы загружены")
                     except Exception as init_err:
                         print(f"   ⚠️ {asset['name']}: ошибка инициализации {init_err}")
                         # Пробуем продолжить
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(2)
 
                 # Запрос свечей (10000 сек истории)
+                print(f"   📊 {asset['name']}: получение свечей...")
                 hist_candles = await client.get_candles(asset['id'], 60, 10000)
+                print(f"   ✅ {asset['name']}: получено {len(hist_candles) if hist_candles else 0} свечей")
 
                 # Сразу закрываем клиента - он больше не нужен
                 if client is not None:
@@ -468,6 +474,9 @@ async def get_signal(
                     except:
                         pass
                     client = None
+
+                # ВАЖНО: Пауза 3 сек между активами чтобы не спамить подключениями
+                await asyncio.sleep(3)
 
                 if not hist_candles or len(hist_candles) < 20:
                     continue
@@ -537,6 +546,10 @@ async def get_signal(
                     except:
                         pass
                     client = None
+
+                # При ошибке ждем дольше перед следующим активом
+                print(f"   ⏳ Пауза 5 сек после ошибки...")
+                await asyncio.sleep(5)
 
                 # Если слишком много ошибок подряд - прекращаем
                 if failed_assets >= max_failed:
