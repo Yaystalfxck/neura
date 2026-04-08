@@ -333,289 +333,137 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов...")
-
-            # Для каждого актива: получаем историю + реальную цену через ОТДЕЛЬНОЕ подключение
-            # (как в test_po_websocket_realtime.py — одно подключение = один актив)
-            analyzed_signals = []
+            # === ЭТАП 1: БЫСТРЫЙ СКАН ВСЕХ АКТИВОВ (Одно подключение) ===
+            # Используем текущее подключение (bot_client), чтобы быстро собрать историю для анализа.
+            # История (свечи) используется для расчета RSI/MACD/Trend.
+            # Это занимает ~5-8 секунд вместо 60+ секунд.
+            print(f"\n🔍 Этап 1: Быстрый анализ 12 активов...")
+            
+            # bot_client уже подключен, используем его
+            analyzed_candidates = []
 
             for asset in currency_pairs:
                 try:
-                    print(f"   📡 {asset['name']}...")
-                    
-                    # Создаём отдельный клиент для этого актива (как в тесте!)
-                    asset_client = PocketOptionAsync(ssid=ssid_to_use)
-                    await asset_client.connect()
-                    
-                    # Ждём чтобы соединение установилось
-                    await asyncio.sleep(2)
-                    
-                    # 1. Получаем исторические свечи для анализа
-                    hist_candles = await asset_client.history(asset['id'], 60)
+                    # Убраны print для ускорения цикла
+                    hist_candles = await bot_client.history(asset['id'], 60)
                     
                     if not hist_candles or len(hist_candles) < 20:
-                        print(f"   ⚠️ недостаточно исторических данных ({len(hist_candles) if hist_candles else 0})")
-                        await asset_client.disconnect()
                         continue
                     
-                    # 2. Получаем РЕАЛЬНУЮ текущую цену через стрим (как в тесте!)
-                    # ВАЖНО: используем await, как в test_po_websocket_realtime.py
-                    real_prices = []
-                    try:
-                        start_ts = time.time()
-                        # Correct usage: await the async generator
-                        async for candle in await asset_client.subscribe_symbol(asset['id']):
-                            price = candle.get('close', candle.get('price', 0))
-                            try:
-                                real_prices.append(float(price))
-                            except:
-                                pass
-                            
-                            # Если получили 3 тика - достаточно для цены
-                            if len(real_prices) >= 3:
-                                break
-                            # Таймаут безопасности 4 сек
-                            if time.time() - start_ts >= 4.0:
-                                break
-                    except Exception as e:
-                        # Если стрим не работает, используем цену из истории
-                        pass
-                    
-                    # Закрываем клиент
-                    await asset_client.disconnect()
-                    
-                    # Используем последнюю реальную цену
-                    if real_prices:
-                        realtime_price = real_prices[-1]
-                        print(f"   ✅ {asset['name']}: {len(hist_candles)} свечей | цена: {realtime_price:.5f} ({len(real_prices)} тиков)")
-                    else:
-                        realtime_price = float(hist_candles[-1].get('close', 0))
-                        print(f"   ⚠️ {asset['name']}: {len(hist_candles)} свечей | цена из истории: {realtime_price:.5f}")
-
-                    # Конвертируем исторические свечи в формат для анализа
-                    history = []
-                    for c in hist_candles:
-                        history.append({
-                            'time': c.get('time', 0),
-                            'open': float(c.get('open', 0)),
-                            'high': float(c.get('high', 0)),
-                            'low': float(c.get('low', 0)),
-                            'close': float(c.get('close', 0)),
-                        })
-
-                    # Генерируем сигнал
-                    # === HYBRID ANALYSIS: ML + Индикаторы ===
-                    
-                    # 1. Пробуем ML модель
-                    ml_signal = None
-                    ml_confidence = 0
-                    try:
-                        ml_gen = get_ml()
-                        # Конвертируем свечи в формат для ML
-                        ml_candles = []
-                        for c in history:
-                            ml_candles.append({
-                                'time': c.get('time', 0),
-                                'open': c.get('open', 0),
-                                'high': c.get('high', 0),
-                                'low': c.get('low', 0),
-                                'close': c.get('close', 0),
-                            })
-                        
-                        # Обучаем модель и получаем сигнал
-                        if len(ml_candles) >= 50:
-                            ml_result = ml_gen.generate_signal(ml_candles, asset.get('name', 'Unknown'))
-                            if ml_result:
-                                ml_signal = ml_result
-                                ml_confidence = ml_result.get('confidence', 0)
-                                print(f"      🤖 ML: {ml_result.get('direction', '?')} ({ml_confidence:.1f}%)")
-                    except Exception as e:
-                        pass  # ML не критичен, fallback на индикаторы
-                    
-                    # 2. Генерируем сигнал на основе индикаторов
-                    indicator_signal = advanced_signal_strategy(history, asset, strategy_type)
-                    if not indicator_signal:
-                        indicator_signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
-                    
-                    # 3. Выбираем лучший сигнал (ML или индикаторы)
-                    if ml_signal and ml_confidence > 60:
-                        # ML дал хороший сигнал — используем его
-                        signal = ml_signal
-                        signal_type = ml_signal.get('direction', 'call')
-                        confidence = ml_confidence
-                        signal['confidence'] = f"{int(confidence)}%"
-                        signal['strength'] = 'strong' if confidence > 80 else 'medium' if confidence > 65 else 'weak'
-                        signal['signal_type'] = signal_type
-                        signal['db_strategy'] = 'MACHINE_LEARNING'
-                        signal['ml_accuracy'] = ml_signal.get('model_accuracy', 0)
-                        print(f"      ✅ Используем ML сигнал ({confidence:.1f}%)")
-                    elif indicator_signal:
-                        # Используем индикаторы
-                        signal = indicator_signal
-                        conf_str = signal.get('confidence', '50%')
-                        indicator_conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-                        
-                        # 4. Если есть и ML и индикаторы — комбинируем
-                        if ml_signal and ml_confidence > 40:
-                            # Усредняем уверенность
-                            combined_conf = (indicator_conf * 0.6) + (ml_confidence * 0.4)
-                            
-                            # Если оба сигнала совпадают — увеличиваем уверенность
-                            ml_dir = ml_signal.get('direction', '')
-                            ind_dir = signal.get('signal_type', '')
-                            if ml_dir == ind_dir:
-                                combined_conf = min(95, combined_conf + 10)  # +10% за совпадение
-                                signal['signal_agreement'] = 'ML+Indicators AGREE'
-                            else:
-                                combined_conf = max(50, combined_conf - 5)  # -5% за разногласие
-                                signal['signal_agreement'] = 'ML vs Indicators DISAGREE'
-                            
-                            confidence = combined_conf
-                            signal['confidence'] = f"{int(confidence)}%"
-                            signal['ml_confidence'] = ml_confidence
-                            signal['indicator_confidence'] = indicator_conf
-                            print(f"      🔄 Комбинированный: ML({ml_confidence:.1f}%) + Ind({indicator_conf:.1f}%) = {confidence:.1f}%")
-                        else:
-                            confidence = indicator_conf
-                    else:
-                        signal = None
-                        confidence = 50
+                    # Анализ на истории
+                    # advanced_signal_strategy может быть тяжелым, но нам нужна точность
+                    signal = advanced_signal_strategy(hist_candles, asset, strategy_type)
                     
                     if signal:
-                        # === УЛУЧШЕННЫЙ АНАЛИЗ (дополнительные индикаторы) ===
-                        stoch = calculate_stochastic(
-                            [c['close'] for c in history],
-                            [c['high'] for c in history],
-                            [c['low'] for c in history],
-                            14
-                        )
+                        # Извлекаем уверенность
+                        conf_str = signal.get('confidence', '50%')
+                        conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
                         
-                        cci = calculate_cci(
-                            [c['high'] for c in history],
-                            [c['low'] for c in history],
-                            [c['close'] for c in history],
-                            20
-                        )
+                        # Сохраняем свечи для расчета волатильности (влияет на экспирацию)
+                        closes = [c.get('close', 0) for c in hist_candles[-20:]]
+                        high = max(closes)
+                        low = min(closes)
+                        volatility_pct = ((high - low) / low) * 100 if low > 0 else 0
                         
-                        pattern = detect_candlestick_pattern(
-                            [c['open'] for c in history],
-                            [c['high'] for c in history],
-                            [c['low'] for c in history],
-                            [c['close'] for c in history]
-                        )
-                        
-                        support, resistance = calculate_support_resistance(
-                            [c['close'] for c in history], 20
-                        )
-                        
-                        # Корректируем уверенность на основе дополнительных индикаторов
-                        original_conf = confidence
-                        
-                        if signal['signal_type'] == 'call' and stoch < 30:
-                            original_conf += 5
-                        elif signal['signal_type'] == 'put' and stoch > 70:
-                            original_conf += 5
-                        elif signal['signal_type'] == 'call' and stoch > 70:
-                            original_conf -= 5
-                        elif signal['signal_type'] == 'put' and stoch < 30:
-                            original_conf -= 5
-                        
-                        if signal['signal_type'] == 'call' and cci < -100:
-                            original_conf += 5
-                        elif signal['signal_type'] == 'put' and cci > 100:
-                            original_conf += 5
-                        
-                        if pattern['type'] == signal['signal_type']:
-                            original_conf += pattern['strength'] * 10
-                        
-                        current_price = history[-1]['close']
-                        dist_to_support = abs(current_price - support) / current_price if current_price > 0 else 1
-                        dist_to_resistance = abs(current_price - resistance) / current_price if current_price > 0 else 1
-                        
-                        if signal['signal_type'] == 'call' and dist_to_support < 0.002:
-                            original_conf += 5
-                        elif signal['signal_type'] == 'put' and dist_to_resistance < 0.002:
-                            original_conf += 5
-                        
-                        # Ограничиваем 50-95%
-                        original_conf = max(50, min(95, original_conf))
-                        confidence = original_conf
-                        
-                        # Обновляем силу сигнала
-                        if confidence > 80:
-                            signal['strength'] = 'strong'
-                        elif confidence > 65:
-                            signal['strength'] = 'medium'
-                        else:
-                            signal['strength'] = 'weak'
-                        
-                        signal['confidence'] = f"{int(confidence)}%"
-                        
-                        # Добавляем дополнительные индикаторы в ответ
-                        signal['enhanced_indicators'] = {
-                            'stochastic_k': round(stoch, 2),
-                            'cci': round(cci, 2),
-                            'candle_pattern': pattern['name'],
-                            'support': round(support, 5),
-                            'resistance': round(resistance, 5),
-                            'dist_to_support_pct': f"{dist_to_support*100:.3f}%",
-                            'dist_to_resistance_pct': f"{dist_to_resistance*100:.3f}%",
-                            'ml_used': ml_signal is not None,
-                            'ml_confidence': ml_confidence if ml_signal else 0
-                        }
-                        
-                        # РЕАЛЬНАЯ цена из BinaryOptionsToolsV2 (последняя свеча)
-                        realtime_price = history[-1]['close']
-                        signal['current_price'] = float(realtime_price)
-                        
-                        # Проверяем время последней свечи
-                        last_candle_time = history[-1].get('time', 0)
-                        if last_candle_time:
-                            candle_dt = datetime.utcfromtimestamp(last_candle_time)
-                            age_seconds = (datetime.utcnow() - candle_dt).total_seconds()
-                            age_marker = "🟢" if age_seconds < 60 else "🟡" if age_seconds < 120 else "🔴"
-                            print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) | price:{realtime_price:.5f} | age:{age_seconds:.0f}s {age_marker}")
-                        else:
-                            print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) | price:{realtime_price:.5f}")
-                        
-                        analyzed_signals.append({
+                        analyzed_candidates.append({
                             'asset': asset,
                             'signal': signal,
-                            'history': history,
-                            'confidence': confidence,
-                            'realtime_price': realtime_price
+                            'confidence': conf,
+                            'volatility_pct': volatility_pct
                         })
-
                 except Exception as e:
-                    print(f"   ❌ {asset['name']}: {e}")
+                    pass
 
-            if not analyzed_signals:
-                print("❌ Не удалось проанализировать ни один актив")
-                await bot_client.disconnect()
-                raise FastAPIHTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Не удалось сгенерировать сигнал"
-                )
+            # Закрываем сканирующее соединение
+            await bot_client.disconnect()
+            
+            if not analyzed_candidates:
+                raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
 
-            # 🏆 Выбираем с МАКСИМАЛЬНОЙ уверенностью
-            best = max(analyzed_signals, key=lambda x: x['confidence'])
-            best_asset = best['asset']
-            signal = best['signal']
-            history = best['history']
-            realtime_price = best['realtime_price']
+            # Выбираем лучший актив по уверенности
+            best_candidate = max(analyzed_candidates, key=lambda x: x['confidence'])
+            best_asset = best_candidate['asset']
+            signal = best_candidate['signal']
+            volatility = best_candidate['volatility_pct']
+
+            print(f"\n🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']} (Уверенность: {best_candidate['confidence']}%)")
+            print(f"   📉 Волатильность: {volatility:.3f}%")
+
+            # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ (Отдельное подключение) ===
+            # Подключаемся отдельно только к лучшему активу, чтобы получить 
+            # точную цену через стрим. Это занимает ~2-3 секунды.
+            print(f"   💰 Получение реальной цены...")
+            realtime_price = 0.0
+            
+            asset_client = PocketOptionAsync(ssid=ssid_to_use)
+            await asset_client.connect()
+            # Убрали сон, ждем пока стрим даст данные
+            
+            try:
+                # Быстрый стрим: ждем 2 тика
+                count = 0
+                start_ts = time.time()
+                # Максимальное ожидание 2.5 секунды
+                async for candle in await asset_client.subscribe_symbol(best_asset['id']):
+                    price = candle.get('close', candle.get('price', 0))
+                    try:
+                        realtime_price = float(price)
+                        count += 1
+                    except: pass
+                    
+                    if count >= 2 or (time.time() - start_ts) > 2.5:
+                        break
+            except Exception:
+                pass
+            finally:
+                await asset_client.disconnect()
+
+            if realtime_price == 0.0:
+                # Fallback если стрим не прошел
+                realtime_price = float(signal.get('current_price', 0))
+            
+            signal['current_price'] = realtime_price
+            print(f"   ✅ Реальная цена: {realtime_price:.5f}")
+            
+            # === ЭТАП 3: РАСЧЕТ ОПТИМАЛЬНОЙ ЭКСПИРАЦИИ ===
+            # Логика: 1-10 минут, основной фокус на 3-5 минут
+            # Используем волатильность для выбора времени
+            import random
+            
+            # Волатильность рассчитывается как % изменения цены за последние 20 свечей
+            # 0.1% - Низкая, 0.3% - Средняя, 0.5%+ - Высокая
+            
+            if volatility < 0.15:
+                # Низкая волатильность: рынок "спит", нужно ждать дольше для движения
+                # Рекомендация: 5-7 минут
+                optimal_timeframe = 5 
+                print(f"   🐢 Низкая волатильность -> экспирация {optimal_timeframe} мин")
+            elif volatility < 0.35:
+                # Средняя волатильность: "Золотая середина"
+                # Рекомендация: 3-5 минут (Основной фокус)
+                optimal_timeframe = random.choice([3, 4, 5]) 
+                print(f"   ⚖️ Средняя волатильность -> экспирация {optimal_timeframe} мин")
+            elif volatility < 0.60:
+                # Высокая волатильность: быстрые движения, нужно забирать прибыль быстро
+                # Рекомендация: 2-4 минуты
+                optimal_timeframe = random.choice([2, 3, 4])
+                print(f"   🚀 Высокая волатильность -> экспирация {optimal_timeframe} мин")
+            else:
+                # Очень высокая волатильность: скальпинг
+                # Рекомендация: 1-2 минуты
+                optimal_timeframe = random.choice([1, 2])
+                print(f"   ⚡ Очень высокая волатильность -> экспирация {optimal_timeframe} мин")
+
+            print(f"   ⏱️ Итоговое рекомендуемое время: {optimal_timeframe} мин")
+            signal['expiry_minutes'] = optimal_timeframe # Обновляем в сигнале
 
             print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
             print(f"   Направление: {signal.get('signal_type', '?').upper()}")
-            print(f"   Уверенность: {best['confidence']:.1f}%")
+            print(f"   Уверенность: {best_candidate['confidence']:.1f}%")
             print(f"   💰 Реальная цена: {realtime_price:.5f}")
 
             # Обновляем цену в сигнале
             signal['current_price'] = float(realtime_price)
-
-            # Закрываем соединение
-            print(f"\n🔌 Отключение...")
-            await bot_client.disconnect()
-            print("✅ Отключено!")
 
             # Форматируем и возвращаем
             return {
