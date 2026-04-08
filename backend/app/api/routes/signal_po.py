@@ -347,7 +347,9 @@ async def get_signal(
                         conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
                         
                         # Сохраняем свечи для расчета волатильности
-                        closes = [c.get('close', 0) for c in hist_candles[-20:]]
+                        # ВАЖНО: принудительно конвертируем в float, так как API может отдавать строки
+                        closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
+                        
                         if closes:
                             high = max(closes)
                             low = min(closes)
