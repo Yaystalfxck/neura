@@ -8,7 +8,6 @@ import os
 import asyncio
 import random
 import time
-import concurrent.futures
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -17,7 +16,6 @@ from app.balance_utils import get_user_balance
 from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
-from pocketoptionapi_async.client import AsyncPocketOptionClient
 from app.po_strategies_advanced import advanced_signal_strategy
 from app.po_strategies_enhanced import (
     calculate_stochastic,
@@ -264,39 +262,23 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # pocketoptionapi_async — держит ОДНО WebSocket соединение для всех запросов
-        # SSID из .env уже в правильном формате с экранированными кавычками \"
-        full_ssid = settings.POCKETOPTION_SESSION_TOKEN
-        
-        print(f"\n🔌 Подключение к PO (pocketoptionapi_async — одно соединение)...")
-        print(f"   SSID: {full_ssid[:80]}...")
-        client = AsyncPocketOptionClient(ssid=full_ssid, is_demo=False, enable_logging=False)
-        connected = await client.connect()
-        
-        if not connected:
-            raise FastAPIHTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Не удалось подключиться к Pocket Option"
-            )
-        print("✅ Подключено!")
-        
+        # ИСПОЛЬЗУЕМ ТОЛЬКО BinaryOptionsToolsV2 с TaskGroup (как Mastaaa1987)
+        # Одно соединение для ВСЕГО — анализ + реальные цены
+        print(f"\n🔌 Подключение через BinaryOptionsToolsV2...")
+
+        from BinaryOptionsToolsV2 import PocketOptionAsync
+
+        bot_client = PocketOptionAsync(ssid=settings.POCKETOPTION_SESSION_TOKEN)
+        await bot_client.connect()
+
+        # Ждём чтобы соединение установилось (как в Mastaaa1987)
+        await asyncio.sleep(2)
+
+        print("✅ BinaryOptionsToolsV2 подключено!")
+
         try:
-            # Небольшая задержка чтобы соединение полностью установилось
-            await asyncio.sleep(1)
-            
-            # Очищаем кэш свечей чтобы получить свежие данные!
-            if hasattr(client, '_candles_cache'):
-                client._candles_cache.clear()
-                print("🗑️ Кэш свечей очищен")
-            
-            # Двойной запрос для получения самых свежих данных
-            # Первый запрос "пробуждает" соединение
-            await client.get_candles("EURUSD_otc", timeframe=60, count=10)
-            # Очищаем кэш снова
-            if hasattr(client, '_candles_cache'):
-                client._candles_cache.clear()
-            
-            # Анализируем ВСЕ валютные пары
+            # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
+            # Используем history() с TaskGroup — как Mastaaa1987
             currency_pairs = [
                 {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
                 {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
@@ -311,115 +293,114 @@ async def get_signal(
                 {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
-            
-            # 🔍 Анализируем ВСЕ активы через pocketoptionapi_async
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов...")
-            
+
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup...")
+
+            # Mastaaa1987 pattern: TaskGroup для ПАРАЛЛЕЛЬНОГО получения данных
+            history_tasks = {}
+            async with asyncio.TaskGroup() as tg:
+                for asset in currency_pairs:
+                    task = tg.create_task(bot_client.history(asset['id'], 60))
+                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
+
+            # Ждём чтобы все задачи завершились
+            await asyncio.sleep(5)
+
+            # Собираем результаты
             analyzed_signals = []
-            
-            for asset in currency_pairs:
+
+            for asset_id, data in history_tasks.items():
+                asset = data['asset']
                 try:
-                    # get_candles() через ОДНО соединение
-                    candles = await client.get_candles(asset['id'], timeframe=60, count=100)
-                    
-                    if not candles or len(candles) < 20:
-                        print(f"   ⚠️ {asset['name']}: недостаточно данных")
+                    candles_data = data['task'].result()
+
+                    if not candles_data or len(candles_data) < 20:
+                        print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
                         continue
-                    
-                    # Конвертируем в dict формат
+
+                    # Конвертируем в формат для анализа
                     history = []
-                    for c in candles:
+                    for c in candles_data:
                         history.append({
-                            'time': getattr(c, 'time', getattr(c, 'timestamp', 0)),
-                            'open': float(getattr(c, 'open', 0)),
-                            'high': float(getattr(c, 'high', 0)),
-                            'low': float(getattr(c, 'low', 0)),
-                            'close': float(getattr(c, 'close', 0)),
+                            'time': c.get('time', 0),
+                            'open': float(c.get('open', 0)),
+                            'high': float(c.get('high', 0)),
+                            'low': float(c.get('low', 0)),
+                            'close': float(c.get('close', 0)),
                         })
-                    
+
                     # Генерируем сигнал
                     signal = advanced_signal_strategy(history, asset, strategy_type)
                     if not signal:
                         signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
-                    
+
                     if signal:
                         # === УЛУЧШЕННЫЙ АНАЛИЗ ===
-                        # Добавляем дополнительные индикаторы для большей точности
-                        
                         stoch = calculate_stochastic(
                             [c['close'] for c in history],
                             [c['high'] for c in history],
                             [c['low'] for c in history],
                             14
                         )
-                        
+
                         cci = calculate_cci(
                             [c['high'] for c in history],
                             [c['low'] for c in history],
                             [c['close'] for c in history],
                             20
                         )
-                        
+
                         pattern = detect_candlestick_pattern(
                             [c['open'] for c in history],
                             [c['high'] for c in history],
                             [c['low'] for c in history],
                             [c['close'] for c in history]
                         )
-                        
+
                         support, resistance = calculate_support_resistance(
                             [c['close'] for c in history], 20
                         )
-                        
-                        # Корректируем уверенность на основе дополнительных индикаторов
+
+                        # Корректируем уверенность
                         original_conf = float(signal.get('confidence', '50%').replace('%', ''))
-                        
-                        # Стохастик подтверждает?
+
                         if signal['signal_type'] == 'call' and stoch < 30:
-                            original_conf += 5  # oversold + call = сильнее
+                            original_conf += 5
                         elif signal['signal_type'] == 'put' and stoch > 70:
-                            original_conf += 5  # overbought + put = сильнее
+                            original_conf += 5
                         elif signal['signal_type'] == 'call' and stoch > 70:
-                            original_conf -= 5  # overbought + call = слабее
+                            original_conf -= 5
                         elif signal['signal_type'] == 'put' and stoch < 30:
-                            original_conf -= 5  # oversold + put = слабее
-                        
-                        # CCI подтверждает?
+                            original_conf -= 5
+
                         if signal['signal_type'] == 'call' and cci < -100:
-                            original_conf += 5  # oversold
+                            original_conf += 5
                         elif signal['signal_type'] == 'put' and cci > 100:
-                            original_conf += 5  # overbought
-                        
-                        # Паттерн свечи?
+                            original_conf += 5
+
                         if pattern['type'] == signal['signal_type']:
                             original_conf += pattern['strength'] * 10
-                        
-                        # Близость к поддержке/сопротивлению?
+
                         current_price = history[-1]['close']
                         dist_to_support = abs(current_price - support) / current_price if current_price > 0 else 1
                         dist_to_resistance = abs(current_price - resistance) / current_price if current_price > 0 else 1
-                        
+
                         if signal['signal_type'] == 'call' and dist_to_support < 0.002:
-                            original_conf += 5  # От поддержки = хороший вход
+                            original_conf += 5
                         elif signal['signal_type'] == 'put' and dist_to_resistance < 0.002:
-                            original_conf += 5  # От сопротивления = хороший вход
-                        
-                        # Ограничиваем 50-95%
+                            original_conf += 5
+
                         original_conf = max(50, min(95, original_conf))
-                        
                         confidence = original_conf
-                        
-                        # Обновляем силу сигнала
+
                         if confidence > 80:
                             signal['strength'] = 'strong'
                         elif confidence > 65:
                             signal['strength'] = 'medium'
                         else:
                             signal['strength'] = 'weak'
-                        
+
                         signal['confidence'] = f"{int(confidence)}%"
-                        
-                        # Добавляем дополнительные индикаторы в ответ
                         signal['enhanced_indicators'] = {
                             'stochastic_k': round(stoch, 2),
                             'cci': round(cci, 2),
@@ -429,88 +410,52 @@ async def get_signal(
                             'dist_to_support_pct': f"{dist_to_support*100:.3f}%",
                             'dist_to_resistance_pct': f"{dist_to_resistance*100:.3f}%"
                         }
-                        
+
+                        # РЕАЛЬНАЯ цена из BinaryOptionsToolsV2 (последняя свеча)
+                        realtime_price = history[-1]['close']
+                        signal['current_price'] = float(realtime_price)
+
                         analyzed_signals.append({
                             'asset': asset,
                             'signal': signal,
                             'history': history,
-                            'confidence': confidence
+                            'confidence': confidence,
+                            'realtime_price': realtime_price
                         })
-                        
-                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) [stoch:{stoch:.1f} cci:{cci:.1f}]")
-                    
+
+                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) | price:{realtime_price:.5f} [stoch:{stoch:.1f} cci:{cci:.1f}]")
+
                 except Exception as e:
                     print(f"   ❌ {asset['name']}: {e}")
-            
+
             if not analyzed_signals:
                 print("❌ Не удалось проанализировать ни один актив")
-                await client.disconnect()
+                await bot_client.disconnect()
                 raise FastAPIHTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Не удалось сгенерировать сигнал"
                 )
-            
+
             # 🏆 Выбираем с МАКСИМАЛЬНОЙ уверенностью
             best = max(analyzed_signals, key=lambda x: x['confidence'])
             best_asset = best['asset']
             signal = best['signal']
             history = best['history']
-            
+            realtime_price = best['realtime_price']
+
             print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
             print(f"   Направление: {signal.get('signal_type', '?').upper()}")
             print(f"   Уверенность: {best['confidence']:.1f}%")
-            
-            # Цена из истории (последняя закрытая свеча)
-            hist_price = history[-1]['close']
-            print(f"\n💰 Историческая цена: {hist_price:.5f}")
-            
-            # Получаем РЕАЛЬНУЮ текущую цену через отдельное соединение
-            print(f"💰 Получение реальной цены...")
-            realtime_price = hist_price  # Fallback
-            
-            try:
-                from BinaryOptionsToolsV2 import PocketOptionAsync
-                bot_client = PocketOptionAsync(ssid=settings.POCKETOPTION_SESSION_TOKEN)
-                await bot_client.connect()
-                
-                # Преобразуем имя актива для BinaryOptionsToolsV2
-                # pocketoptionapi_async: "GBPUSD_otc"
-                # BinaryOptionsToolsV2: может требовать другой формат
-                bot_asset_id = best_asset['id'].replace('_otc', '-otc')
-                
-                print(f"   Подписка на {bot_asset_id}...")
-                
-                # Подписываемся на стрим для лучшего актива
-                real_prices = []
-                start_ts = time.time()
-                
-                async for candle in await bot_client.subscribe_symbol(bot_asset_id):
-                    price_raw = candle.get('close', candle.get('price', 0))
-                    try:
-                        real_prices.append(float(price_raw))
-                    except:
-                        pass
-                    if time.time() - start_ts >= 2.0:  # 2 секунды стрим
-                        break
-                
-                await bot_client.disconnect()
-                
-                if real_prices:
-                    realtime_price = real_prices[-1]
-                    print(f"✅ Реальная цена: {realtime_price:.5f}")
-                else:
-                    print(f"⚠️ Стрим не получен, используем историю: {hist_price:.5f}")
-            except Exception as e:
-                print(f"⚠️ Ошибка получения реальной цены: {e}")
-            
+            print(f"   💰 Реальная цена: {realtime_price:.5f}")
+
             # Обновляем цену в сигнале
             signal['current_price'] = float(realtime_price)
-            
+
             # Закрываем соединение
             print(f"\n🔌 Отключение...")
-            await client.disconnect()
+            await bot_client.disconnect()
             print("✅ Отключено!")
-            
+
             # Форматируем и возвращаем
             return {
                 "success": True,
@@ -523,90 +468,29 @@ async def get_signal(
                     "strategy": strategy_type,
                     "min_payout": min_payout,
                     "timestamp": datetime.utcnow().isoformat(),
-                    "data_source": "pocketoptionapi_async"
+                    "data_source": "BinaryOptionsToolsV2"
                 }
             }
-            
+
         except FastAPIHTTPException:
             raise
         except Exception as e:
             print(f"❌ Ошибка: {e}")
             import traceback
             traceback.print_exc()
-            await client.disconnect()
+            await bot_client.disconnect()
             raise FastAPIHTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка при генерации сигнала: {str(e)}"
             )
-        
-        print(f"\n✅ СИГНАЛ СГЕНЕРИРОВАН:")
-        print(f"   Пара: {signal['pair_name']}")
-        print(f"   Направление: {signal['signal_type'].upper()}")
-        print(f"   Уверенность: {signal['confidence']}")
-        print(f"   Реальная цена: {realtime_price:.5f}")
-        
-        # Сохраняем сигнал в БД
-        signal_record = POSignal(
-            signal_type=signal.get("signal_type", "call"),
-            strength=signal.get("strength", "medium"),
-            confidence=float(signal.get("confidence", "50%").replace("%", "")),
-            asset_name=signal.get("pair_name", "EUR/USD"),
-            amount=1.0,
-            timeframe=int(timeframe) * 60,
-            current_price=float(signal.get("current_price", "1.0850")),
-            strategy_type=signal.get("db_strategy", "INDICATORS"),
-            user_id=current_user.id,
-            expires_at=datetime.utcnow() + timedelta(minutes=int(timeframe)),
-            status="pending",
-            result="pending"
-        )
-        
-        db.add(signal_record)
-        
-        signal_usage = SignalUsage(
-            user_id=current_user.id,
-            signal_data=json.dumps(signal)
-        )
-        db.add(signal_usage)
-        await db.commit()
-        
-        formatted_signal = format_signal_response(signal, current_user.balance)
 
-        print(f"\n✅ СИГНАЛ ГОТОВ:")
-        print(f"   Пара: {formatted_signal['pair']}")
-        print(f"   Направление: {formatted_signal['direction']}")
-        print(f"   Entry Price: {formatted_signal['entry_price']}")
-        print(f"   Current Price: {formatted_signal['market_data']['current_price']}")
-        print(f"   Confidence: {formatted_signal['confidence']}")
-
-        # НЕ закрываем клиент — он остаётся в пуле для следующих запросов
-        # Пул сам переиспользует или пересоздаст при необходимости
-
-        return {
-            "success": True,
-            "signal": formatted_signal,
-            "balance": float(user_balance),  # Используем переменную которая точно обновлена
-            "market_data_summary": {
-                "assets_analyzed": len(assets),
-                "timeframe": timeframe,
-                "market": market,
-                "strategy": strategy_type,
-                "min_payout": min_payout,
-                "timestamp": datetime.utcnow().isoformat(),
-                "data_source": "real" if not use_demo and client else "demo"
-            }
-        }
-        
     except FastAPIHTTPException:
         raise
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         import traceback
         traceback.print_exc()
-        
-        # НЕ закрываем клиент при ошибке — пул сам разберётся
-        # Если клиент мёртв, pool пересоздаст его при следующем запросе
-        
+
         raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при генерации сигнала: {str(e)}"
