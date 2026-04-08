@@ -356,11 +356,6 @@ function SearchPage() {
                 </>
               )}
             </Button>
-            {isLoading && (
-              <p className="mt-3 text-sm text-gray-400">
-                {t("signals.loadingData")}
-              </p>
-            )}
             {user?.role !== 'admin' && signalsUsed >= signalsLimit && (
               <p className="mt-3 text-sm text-yellow-400">
                 ⚠️ {t("signals.limitExhaustedDesc")}

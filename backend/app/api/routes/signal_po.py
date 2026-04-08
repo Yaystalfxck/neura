@@ -23,6 +23,7 @@ from app.po_strategies_enhanced import (
     detect_candlestick_pattern,
     calculate_support_resistance
 )
+from app.utils.signal_limits import get_signal_limits, get_next_limit_balance
 
 settings = get_settings()
 
@@ -38,20 +39,6 @@ def get_ml():
 sa_select = select
 
 router = APIRouter(prefix="/api", tags=["Signals"])
-
-
-def get_next_limit_balance(current_balance: float) -> float:
-    """Возвращает необходимый баланс для следующего лимита сигналов"""
-    if current_balance >= 200:
-        return 200
-    elif current_balance >= 100:
-        return 200
-    elif current_balance >= 50:
-        return 100
-    elif current_balance >= 25:
-        return 50
-    else:
-        return 25
 
 
 # ============================================================
@@ -229,25 +216,15 @@ async def get_signal(
             user_balance = float(current_user.balance) if current_user.balance else 0.0
             print(f"💰 Баланс: ${user_balance}")
 
-            # Проверка для админов - безлимитно
-            daily_limit = 999  # Для админов
-            if current_user.role != 'admin':
-                if user_balance >= 200:
-                    daily_limit = 5
-                elif user_balance >= 100:
-                    daily_limit = 4
-                elif user_balance >= 50:
-                    daily_limit = 3
-                elif user_balance >= 25:
-                    daily_limit = 2
-                else:
-                    daily_limit = 1
+            # Используем единую функцию для расчета лимитов
+            limits = get_signal_limits(user_balance, current_user.role)
+            daily_limit = limits["limit"]
 
-                if used_today >= daily_limit:
-                    raise FastAPIHTTPException(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня."
-                    )
+            if current_user.role != 'admin' and used_today >= daily_limit:
+                raise FastAPIHTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня."
+                )
         except FastAPIHTTPException:
             raise
         except Exception as e:
@@ -337,9 +314,24 @@ async def get_signal(
                     if not hist_candles or len(hist_candles) < 20:
                         # print(f"   ⚠️ {asset['id']}: мало данных ({len(hist_candles) if hist_candles else 0})")
                         continue
-                    
-                    # Анализ на истории
-                    signal = advanced_signal_strategy(hist_candles, asset, strategy_type)
+
+                    # === ВАЖНО: Конвертируем строки в числа ===
+                    # API часто отдает цены как строки ('1.1500'), что ломает математику
+                    clean_candles = []
+                    for c in hist_candles:
+                        try:
+                            clean_candles.append({
+                                'time': c.get('time', 0),
+                                'open': float(c.get('open', 0)),
+                                'high': float(c.get('high', 0)),
+                                'low': float(c.get('low', 0)),
+                                'close': float(c.get('close', 0)),
+                            })
+                        except:
+                            pass
+
+                    # Анализ на истории (теперь с гарантированно числами)
+                    signal = advanced_signal_strategy(clean_candles, asset, strategy_type)
                     
                     if signal:
                         # Извлекаем уверенность
