@@ -95,74 +95,15 @@ async def sync_balance(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Синхронизация баланса с PocketOption API"""
-    try:
-        po_service = get_pocket_option_service()
-        user_data = await po_service.get_user_data(current_user.pocket_option_id)
-
-        if not user_data:
-            return {
-                "success": True,
-                "balance": float(current_user.balance or 0),
-                "message": "PO API недоступно",
-                "source": "database",
-            }
-
-        new_balance = user_data.get("current_balance", 0.0)
-        total_deposit = user_data.get("total_deposit", 0.0)
-        deposits_count = user_data.get("deposits_count", 0)
-
-        # Получаем текущие записи о депозитах, чтобы найти новые
-        po_user_result = await db.execute(
-            select(PocketOptionUser).where(PocketOptionUser.pocket_option_id == current_user.pocket_option_id)
-        )
-        po_user = po_user_result.scalar_one_or_none()
-        old_total_deposit = po_user.total_deposit if po_user else 0.0
-
-        current_user.balance = new_balance
-
-        if po_user:
-            po_user.current_balance = new_balance
-            po_user.total_deposit = total_deposit
-            po_user.deposits_count = deposits_count
-            po_user.last_sync = datetime.utcnow()
-        else:
-            po_user = PocketOptionUser(
-                pocket_option_id=current_user.pocket_option_id,
-                email=user_data.get("email", ""),
-                current_balance=new_balance,
-                total_deposit=total_deposit,
-                deposits_count=deposits_count,
-                last_sync=datetime.utcnow()
-            )
-            db.add(po_user)
-
-        await db.commit()
-
-        # === АВТОМАТИЧЕСКОЕ НАЧИСЛЕНИЕ КОМИССИИ ЗА ДЕПОЗИТ ===
-        new_deposit_amount = total_deposit - old_total_deposit if total_deposit > old_total_deposit else 0
-
-        if new_deposit_amount > 0:
-            print(f"💰 Обнаружен новый депозит: ${new_deposit_amount} для {current_user.email}")
-            await _create_referral_commission(db, current_user, new_deposit_amount, f"deposit_sync_{int(datetime.utcnow().timestamp())}")
-
-        print(f"✅ Баланс синхронизирован для {current_user.email}: ${new_balance}")
-
-        return {
-            "success": True,
-            "balance": new_balance,
-            "message": "Баланс синхронизирован",
-            "source": "pocketoption_api",
-        }
-
-    except Exception as e:
-        print(f"❌ Ошибка синхронизации: {e}")
-        return {
-            "success": True,
-            "balance": float(current_user.balance or 0),
-            "message": "Использован кэш",
-            "source": "cached",
-        }
+    """Синхронизация баланса с PocketOption API - ОТКЛЮЧЕНО для стабильности"""
+    # ВАЖНО: Отключаем синхронизацию через pocketoptionapi_async
+    # т.к. она конфликтует с BinaryOptionsToolsV2
+    # Используем баланс из БД напрямую
+    return {
+        "success": True,
+        "message": "Баланс получен из БД (синхронизация отключена)",
+        "balance": float(current_user.balance) if current_user.balance else 0.0
+    }
 
 
 @router.get("/balance", response_model=dict)
@@ -170,21 +111,26 @@ async def get_balance(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение баланса пользователя"""
-    try:
-        user_balance = await get_user_balance(current_user, db, sync_with_po=True)
-        return {
-            "success": True,
-            "balance": user_balance,
-            "source": "pocketoption_api"
-        }
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        return {
-            "success": True,
-            "balance": float(current_user.balance or 0),
-            "source": "database"
-        }
+    """Получение баланса пользователя - из БД без синхронизации"""
+    return {
+        "success": True,
+        "balance": float(current_user.balance or 0),
+        "message": "Баланс получен из БД",
+        "source": "database",
+    }
+
+
+@router.post("/sync-balance", response_model=dict)
+async def sync_balance(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Синхронизация баланса - ОТКЛЮЧЕНО для стабильности"""
+    return {
+        "success": True,
+        "message": "Синхронизация отключена. Используйте баланс из БД.",
+        "balance": float(current_user.balance or 0)
+    }
 
 
 async def _create_referral_commission(

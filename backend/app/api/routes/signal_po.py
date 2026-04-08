@@ -208,71 +208,80 @@ async def get_signal(
         print(f"Параметры: market={market}, timeframe={timeframe}m, strategy={strategy_type}, min_payout={min_payout}%")
 
         # 🔴 ПРОВЕРКА ЛИМИТОВ СИГНАЛОВ
-        from datetime import datetime as dt_module
-        from sqlalchemy import cast, Date
-        
-        today = dt_module.utcnow().date()
+        try:
+            print("📊 Проверка лимитов...")
+            from datetime import datetime as dt_module
+            from sqlalchemy import cast, Date
 
-        # Получаем использование сигналов сегодня (PostgreSQL совместимо)
-        result = await db.execute(
-            sa_select(func.count(SignalUsage.id))
-            .where(SignalUsage.user_id == current_user.id)
-            .where(cast(SignalUsage.used_at, Date) == today)
-        )
-        used_today = result.scalar() or 0
+            today = dt_module.utcnow().date()
 
-        # Получаем баланс
-        # Для flaun.feed@mail.ru - получаем с демо-счёта PO WebSocket
-        if current_user.email == "flaun.feed@mail.ru":
-            print(f"🎯 Получение баланса с демо-счёта для {current_user.email}")
-            # Баланс будет получен при подключении клиента ниже
-            # Используем fallback на $1000 пока не получим реальный
-            po_balance = 1000.0
-            user_balance = po_balance
-            print(f"💰 Демо баланс (будет обновлён): ${po_balance}")
-        else:
-            # Для остальных - из БД
-            po_result = await db.execute(
-                sa_select(PocketOptionUser.current_balance)
-                .where(PocketOptionUser.pocket_option_id == current_user.pocket_option_id)
+            # Получаем использование сигналов сегодня (PostgreSQL совместимо)
+            result = await db.execute(
+                sa_select(func.count(SignalUsage.id))
+                .where(SignalUsage.user_id == current_user.id)
+                .where(cast(SignalUsage.used_at, Date) == today)
             )
-            po_row = po_result.scalar_one_or_none()
-            # Обновляем баланс пользователя
-            if po_row:
-                user_balance = float(po_row)
-                current_user.balance = user_balance
-            else:
-                user_balance = float(current_user.balance) if current_user.balance else 0.0
-            print(f"💰 Баланс из БД: ${user_balance}")
+            used_today = result.scalar() or 0
+            print(f"   Использовано сегодня: {used_today}")
 
-        # Проверка для админов - безлимитно
-        daily_limit = 999  # Для админов
-        if current_user.role != 'admin':
-            # Определяем лимит по балансу
-            if user_balance >= 200:
-                daily_limit = 5
-            elif user_balance >= 100:
-                daily_limit = 4
-            elif user_balance >= 50:
-                daily_limit = 3
-            elif user_balance >= 25:
-                daily_limit = 2
+            # Получаем баланс
+            print("💰 Получение баланса...")
+            if current_user.email == "flaun.feed@mail.ru":
+                print(f"🎯 Получение баланса с демо-счёта для {current_user.email}")
+                po_balance = 1000.0
+                user_balance = po_balance
+                print(f"💰 Демо баланс (будет обновлён): ${po_balance}")
             else:
-                daily_limit = 1  # Первый сигнал бесплатный
-
-            # Проверяем лимит
-            if used_today >= daily_limit:
-                raise FastAPIHTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня. "
-                           f"Для получения {daily_limit + 1} сигналов необходим баланс от ${get_next_limit_balance(user_balance)}."
+                po_result = await db.execute(
+                    sa_select(PocketOptionUser.current_balance)
+                    .where(PocketOptionUser.pocket_option_id == current_user.pocket_option_id)
                 )
+                po_row = po_result.scalar_one_or_none()
+                if po_row:
+                    user_balance = float(po_row)
+                    current_user.balance = user_balance
+                else:
+                    user_balance = float(current_user.balance) if current_user.balance else 0.0
+                print(f"💰 Баланс из БД: ${user_balance}")
+
+            # Проверка для админов - безлимитно
+            daily_limit = 999  # Для админов
+            if current_user.role != 'admin':
+                if user_balance >= 200:
+                    daily_limit = 5
+                elif user_balance >= 100:
+                    daily_limit = 4
+                elif user_balance >= 50:
+                    daily_limit = 3
+                elif user_balance >= 25:
+                    daily_limit = 2
+                else:
+                    daily_limit = 1
+
+                if used_today >= daily_limit:
+                    raise FastAPIHTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня. "
+                               f"Для получения {daily_limit + 1} сигналов необходим баланс от ${get_next_limit_balance(user_balance)}."
+                    )
+        except FastAPIHTTPException:
+            raise
+        except Exception as e:
+            print(f"❌ Ошибка проверки лимитов: {e}")
+            import traceback
+            traceback.print_exc()
+            user_balance = 1000.0
+            used_today = 0
+            daily_limit = 999
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
+        # === ГЕНЕРАЦИЯ СИГНАЛА ===
+        print(f"\n🚀 Начинаем генерацию сигнала...")
+        
         # ИСПОЛЬЗУЕМ ТОЛЬКО BinaryOptionsToolsV2 с TaskGroup (как Mastaaa1987)
         # Одно соединение для ВСЕГО — анализ + реальные цены
-        print(f"\n🔌 Подключение через BinaryOptionsToolsV2...")
+        print(f"🔌 Подключение через BinaryOptionsToolsV2...")
         
         from BinaryOptionsToolsV2 import PocketOptionAsync
         
@@ -291,12 +300,17 @@ async def get_signal(
         
         print(f"   SSID: {ssid_to_use[:60]}...")
         print(f"   Режим: REAL рыночные данные")
-        
+
+        print("🔌 Создание клиента...")
         bot_client = PocketOptionAsync(ssid=ssid_to_use)
+        print("🔌 Подключение к серверу...")
         await bot_client.connect()
+        print("✅ Соединение установлено!")
 
         # Ждём чтобы соединение установилось (как в Mastaaa1987)
+        print("⏳ Ожидание 2 сек...")
         await asyncio.sleep(2)
+        print("✅ Ожидание завершено!")
 
         print("✅ BinaryOptionsToolsV2 подключено!")
         
@@ -341,13 +355,18 @@ async def get_signal(
             history_tasks = {}
             async with asyncio.TaskGroup() as tg:
                 for asset in currency_pairs:
-                    task = tg.create_task(bot_client.get_candles(asset['id'], 60, 100))
-                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
+                    try:
+                        task = tg.create_task(bot_client.get_candles(asset['id'], 60, 100))
+                        history_tasks[asset['id']] = {'task': task, 'asset': asset}
+                    except Exception as e:
+                        print(f"   ⚠️ {asset['name']}: ошибка создания задачи - {e}")
 
-            # Ждём чтобы все задачи завершились
-            await asyncio.sleep(5)
+            # Ждём чтобы все задачи завершились (увеличено до 15 сек)
+            print("⏳ Ожидание данных от активов...")
+            await asyncio.sleep(15)
 
             # Собираем результаты
+            print("📊 Сбор результатов...")
             analyzed_signals = []
 
             for asset_id, data in history_tasks.items():
