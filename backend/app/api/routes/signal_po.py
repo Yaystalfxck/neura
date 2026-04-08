@@ -7,7 +7,6 @@ import json
 import os
 import asyncio
 import random
-import concurrent.futures
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -16,8 +15,8 @@ from app.balance_utils import get_user_balance
 from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
+from pocketoptionapi_async.client import AsyncPocketOptionClient
 from app.po_strategies_advanced import advanced_signal_strategy
-from pocketoptionapi.stable_api import PocketOption
 
 settings = get_settings()
 
@@ -257,143 +256,144 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # Используем pocketoptionapi.stable_api.PocketOption — держит ОДНО соединение
-        # (как Mastaaa1987 API — sync API через background thread)
+        # pocketoptionapi_async — держит ОДНО WebSocket соединение для всех запросов
         is_demo_mode = market.lower() == "demo"
         
         session_token = settings.POCKETOPTION_SESSION_TOKEN
         uid = settings.POCKETOPTION_UID
-        demo = is_demo_mode
+        ssid = f'42["auth",{{"session":"{session_token}","isDemo":0,"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
         
-        # Формируем SSID
-        if is_demo_mode:
-            ssid = f'42["auth",{{"session":"{session_token}","isDemo":1,"uid":{uid},"platform":1}}]'
-        else:
-            ssid = session_token
+        print(f"\n🔌 Подключение к PO (pocketoptionapi_async — одно соединение)...")
+        client = AsyncPocketOptionClient(ssid=ssid, is_demo=False, enable_logging=False)
+        connected = await client.connect()
         
-        print(f"\n🔌 Подключение к PO (pocketoptionapi.stable_api — одно соединение)...")
+        if not connected:
+            raise FastAPIHTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Не удалось подключиться к Pocket Option"
+            )
+        print("✅ Подключено!")
         
-        # Создаём клиент в background thread
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Подключаемся в thread
-            def connect_and_analyze():
-                api = PocketOption(ssid, demo)
-                api.connect()  # ← ОДНО постоянное соединение (background thread)
-                
-                print("✅ Подключено!")
-                
-                # Анализируем ВСЕ валютные пары
-                currency_pairs = [
-                    {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
-                    {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
-                    {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 90},
-                    {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 90},
-                    {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 90},
-                    {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
-                    {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 90},
-                    {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 88},
-                    {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
-                    {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 88},
-                    {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
-                    {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
-                ]
-                
-                print(f"\n🔍 Анализ {len(currency_pairs)} активов через одно соединение...")
-                
-                analyzed_signals = []
-                
-                for asset in currency_pairs:
-                    try:
-                        # get_candles() через ТО ЖЕ самое WebSocket соединение
-                        candles = api.get_candles(asset['id'], 60)
-                        
-                        if not candles or len(candles) < 20:
-                            print(f"   ⚠️ {asset['name']}: недостаточно данных")
-                            continue
-                        
-                        # Конвертируем в dict формат
-                        history = []
-                        for _, c in candles.iterrows():
-                            history.append({
-                                'time': int(c.get('time', 0).timestamp()) if hasattr(c.get('time', 0), 'timestamp') else int(c.get('time', 0)),
-                                'open': float(c.get('open', 0)),
-                                'high': float(c.get('high', 0)),
-                                'low': float(c.get('low', 0)),
-                                'close': float(c.get('close', 0)),
-                            })
-                        
-                        # Генерируем сигнал
-                        signal = advanced_signal_strategy(history, asset, strategy_type)
-                        if not signal:
-                            signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
-                        
-                        if signal:
-                            conf_str = signal.get('confidence', '50%')
-                            confidence = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-                            
-                            analyzed_signals.append({
-                                'asset': asset,
-                                'signal': signal,
-                                'history': history,
-                                'confidence': confidence
-                            })
-                            
-                            print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%)")
-                        
-                    except Exception as e:
-                        print(f"   ❌ {asset['name']}: {e}")
-                
-                # 🏆 Выбираем с МАКСИМАЛЬНОЙ уверенностью
-                if not analyzed_signals:
-                    api.close()
-                    return None, "Не удалось проанализировать ни один актив"
-                
-                best = max(analyzed_signals, key=lambda x: x['confidence'])
-                best_asset = best['asset']
-                signal = best['signal']
-                history = best['history']
-                
-                print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
-                print(f"   Направление: {signal.get('signal_type', '?').upper()}")
-                print(f"   Уверенность: {best['confidence']:.1f}%")
-                
-                # Цена = последняя свеча (самая свежая)
-                realtime_price = history[-1]['close']
-                print(f"\n💰 ЦЕНА: {realtime_price:.5f}")
-                
-                signal['current_price'] = float(realtime_price)
-                
-                # Закрываем соединение
-                print(f"\n🔌 Отключение...")
-                api.close()
-                print("✅ Отключено!")
-                
-                return signal, None
+        try:
+            # Анализируем ВСЕ валютные пары
+            currency_pairs = [
+                {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
+                {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
+                {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 90},
+                {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 90},
+                {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 90},
+                {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
+                {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 90},
+                {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 88},
+                {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
+                {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 88},
+                {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
+                {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
+            ]
             
-            # Запускаем в thread и ждём результат
-            result_signal, error = await loop.run_in_executor(executor, connect_and_analyze)
+            # 🔍 Анализируем ВСЕ активы через pocketoptionapi_async
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов...")
             
-            if error:
+            analyzed_signals = []
+            
+            for asset in currency_pairs:
+                try:
+                    # get_candles() через ОДНО соединение
+                    candles = await client.get_candles(asset['id'], timeframe=60, count=100)
+                    
+                    if not candles or len(candles) < 20:
+                        print(f"   ⚠️ {asset['name']}: недостаточно данных")
+                        continue
+                    
+                    # Конвертируем в dict формат
+                    history = []
+                    for c in candles:
+                        history.append({
+                            'time': getattr(c, 'time', getattr(c, 'timestamp', 0)),
+                            'open': float(getattr(c, 'open', 0)),
+                            'high': float(getattr(c, 'high', 0)),
+                            'low': float(getattr(c, 'low', 0)),
+                            'close': float(getattr(c, 'close', 0)),
+                        })
+                    
+                    # Генерируем сигнал
+                    signal = advanced_signal_strategy(history, asset, strategy_type)
+                    if not signal:
+                        signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
+                    
+                    if signal:
+                        conf_str = signal.get('confidence', '50%')
+                        confidence = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+                        
+                        analyzed_signals.append({
+                            'asset': asset,
+                            'signal': signal,
+                            'history': history,
+                            'confidence': confidence
+                        })
+                        
+                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%)")
+                    
+                except Exception as e:
+                    print(f"   ❌ {asset['name']}: {e}")
+            
+            if not analyzed_signals:
+                print("❌ Не удалось проанализировать ни один актив")
+                await client.disconnect()
                 raise FastAPIHTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=error
+                    detail="Не удалось сгенерировать сигнал"
                 )
             
+            # 🏆 Выбираем с МАКСИМАЛЬНОЙ уверенностью
+            best = max(analyzed_signals, key=lambda x: x['confidence'])
+            best_asset = best['asset']
+            signal = best['signal']
+            history = best['history']
+            
+            print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
+            print(f"   Направление: {signal.get('signal_type', '?').upper()}")
+            print(f"   Уверенность: {best['confidence']:.1f}%")
+            
+            # Цена = последняя свеча (самая свежая)
+            realtime_price = history[-1]['close']
+            print(f"\n💰 ЦЕНА: {realtime_price:.5f}")
+            
+            # Обновляем цену в сигнале
+            signal['current_price'] = float(realtime_price)
+            
+            # Закрываем соединение
+            print(f"\n🔌 Отключение...")
+            await client.disconnect()
+            print("✅ Отключено!")
+            
+            # Форматируем и возвращаем
             return {
                 "success": True,
-                "signal": format_signal_response(result_signal, user_balance),
+                "signal": format_signal_response(signal, user_balance),
                 "balance": float(user_balance),
                 "market_data_summary": {
-                    "assets_analyzed": 12,
+                    "assets_analyzed": len(currency_pairs),
                     "timeframe": timeframe,
                     "market": market,
                     "strategy": strategy_type,
                     "min_payout": min_payout,
                     "timestamp": datetime.utcnow().isoformat(),
-                    "data_source": "pocketoptionapi.stable_api"
+                    "data_source": "pocketoptionapi_async"
                 }
             }
+            
+        except FastAPIHTTPException:
+            raise
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            import traceback
+            traceback.print_exc()
+            await client.disconnect()
+            raise FastAPIHTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка при генерации сигнала: {str(e)}"
+            )
         
         print(f"\n✅ СИГНАЛ СГЕНЕРИРОВАН:")
         print(f"   Пара: {signal['pair_name']}")
