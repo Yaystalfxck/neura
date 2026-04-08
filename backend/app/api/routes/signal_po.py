@@ -257,8 +257,8 @@ async def get_signal(
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
         # pocketoptionapi_async — держит ОДНО WebSocket соединение для всех запросов
-        # SSID из .env имеет экранированные кавычки \\" — заменяем на обычные "
-        full_ssid = settings.POCKETOPTION_SESSION_TOKEN.replace('\\"', '"')
+        # SSID из .env уже в правильном формате с экранированными кавычками \"
+        full_ssid = settings.POCKETOPTION_SESSION_TOKEN
         
         print(f"\n🔌 Подключение к PO (pocketoptionapi_async — одно соединение)...")
         print(f"   SSID: {full_ssid[:80]}...")
