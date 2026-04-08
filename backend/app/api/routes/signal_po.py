@@ -332,25 +332,18 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов (подписка + свечи)...")
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов (последовательно)...")
 
-            # Для каждого актива: подписка → получение свечей → анализ
+            # Получаем данные ПОСЛЕДОВАТЕЛЬНО через get_candles()
+            # Как в test_po_websocket_realtime.py и Mastaaa1987
             analyzed_signals = []
 
             for asset in currency_pairs:
                 try:
                     print(f"   📡 {asset['name']}...")
-                    
-                    # Сначала подписываемся на актив чтобы сервер начал слать данные
-                    try:
-                        sub_task = asyncio.create_task(bot_client.subscribe_symbol(asset['id']))
-                        await asyncio.sleep(1.5)  # Ждём 1.5 сек чтобы данные накопились
-                        sub_task.cancel()  # Отменяем подписку
-                    except:
-                        pass
-                    
-                    # Теперь получаем накопленные свечи
-                    candles_data = await bot_client.get_candles(asset['id'], 60, 100)
+                    # get_candles(asset, timeframe, offset/period)
+                    # Mastaaa1987 uses 9000 for offset to get enough history
+                    candles_data = await bot_client.get_candles(asset['id'], 60, 9000)
 
                     if not candles_data or len(candles_data) < 20:
                         print(f"   ⚠️ недостаточно данных")
