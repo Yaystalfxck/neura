@@ -329,13 +329,13 @@ async def get_signal(
 
             for asset in currency_pairs:
                 try:
-                    # Используем get_candles() как в рабочем тесте
-                    # offset=100 позволяет получить достаточно истории
-                    print(f"   📡 Запрос {asset['id']}...")
-                    hist_candles = await bot_client.get_candles(asset['id'], 60, 100)
+                    # Используем get_candles()
+                    # 3-й параметр (offset) — это период истории В СЕКУНДАХ.
+                    # 10000 секунд ≈ 2.7 часа данных, что даст нам ~160 свечей.
+                    hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
                     
                     if not hist_candles or len(hist_candles) < 20:
-                        print(f"   ⚠️ {asset['id']}: мало данных ({len(hist_candles) if hist_candles else 0})")
+                        # print(f"   ⚠️ {asset['id']}: мало данных ({len(hist_candles) if hist_candles else 0})")
                         continue
                     
                     # Анализ на истории
