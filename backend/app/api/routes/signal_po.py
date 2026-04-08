@@ -18,7 +18,13 @@ from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
 from app.po_strategies_advanced import advanced_signal_strategy
 from app.signal_limits import get_signal_limits, get_next_limit_balance
-from app.pocketoptionapi_async.client import AsyncPocketOptionClient
+# Используем BinaryOptionsToolsV2 для получения актуальных цен
+try:
+    from BinaryOptionsToolsV2 import PocketOptionAsync
+    USE_BOT_V2 = True
+except ImportError:
+    USE_BOT_V2 = False
+    from app.pocketoptionapi_async.client import AsyncPocketOptionClient
 
 settings = get_settings()
 
@@ -238,7 +244,7 @@ async def get_signal(
         ssid_to_use = settings.POCKETOPTION_SESSION_TOKEN
         is_demo_mode = '"isDemo":1' in ssid_to_use or '"isDemo": 1' in ssid_to_use
         
-        print(f"🔌 Подключение через PocketOptionAsync (Robust Pool)...")
+        print(f"🔌 Подключение через {'BinaryOptionsToolsV2' if USE_BOT_V2 else 'AsyncClient'}...")
         print(f"   SSID: {ssid_to_use[:40]}...")
         print(f"   Режим: {'DEMO' if is_demo_mode else 'REAL'}")
 
@@ -256,8 +262,11 @@ async def get_signal(
         ]
 
         try:
-            # 1. Инициализация клиента
-            bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
+            # 1. Инициализация клиента (Приоритет у BinaryOptionsToolsV2 для реальных цен)
+            if USE_BOT_V2:
+                bot_client = PocketOptionAsync(ssid=ssid_to_use)
+            else:
+                bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
             
             print("📡 Подключение...")
             await bot_client.connect()
@@ -330,10 +339,13 @@ async def get_signal(
                     # АВТО-ПЕРЕПОДКЛЮЧЕНИЕ при разрыве
                     if "half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg:
                         print(f"   ⚠️ Разрыв связи! Переподключение для {asset['id']}...")
-                        try: await bot_client.disconnect() 
+                        try: await bot_client.disconnect()
                         except: pass
-                        
-                        bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
+
+                        if USE_BOT_V2:
+                            bot_client = PocketOptionAsync(ssid=ssid_to_use)
+                        else:
+                            bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
                         await bot_client.connect()
                         print(f"   ✅ Переподключено. Повтор {asset['id']}...")
                         
