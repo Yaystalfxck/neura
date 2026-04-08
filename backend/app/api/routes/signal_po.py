@@ -301,9 +301,9 @@ async def get_signal(
 
         try:
             # Ждём чтобы соединение полностью установилось
-            # Не используем payout() — он часто ломает соединение ("half closed channel")
+            # Увеличено до 5 сек для надежной инициализации сессии на сервере
             print("⏳ Инициализация соединения...")
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
             # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
             # Используем history() — самый стабильный метод для получения данных
@@ -324,23 +324,20 @@ async def get_signal(
 
             # === ЭТАП 1: БЫСТРЫЙ СКАН ВСЕХ АКТИВОВ (Одно подключение) ===
             # Используем текущее подключение (bot_client), чтобы быстро собрать историю для анализа.
-            # История (свечи) используется для расчета RSI/MACD/Trend.
-            # Это занимает ~5-8 секунд вместо 60+ секунд.
             print(f"\n🔍 Этап 1: Быстрый анализ 12 активов...")
             
-            # bot_client уже подключен, используем его
             analyzed_candidates = []
 
             for asset in currency_pairs:
                 try:
-                    # Получаем историю для анализа
-                    hist_candles = await bot_client.history(asset['id'], 60)
+                    # Используем get_candles() как в рабочем тесте
+                    # offset=100 позволяет получить достаточно истории
+                    hist_candles = await bot_client.get_candles(asset['id'], 60, 100)
                     
                     if not hist_candles or len(hist_candles) < 20:
                         continue
                     
                     # Анализ на истории
-                    # advanced_signal_strategy может быть тяжелым, но нам нужна точность
                     signal = advanced_signal_strategy(hist_candles, asset, strategy_type)
                     
                     if signal:
@@ -348,12 +345,15 @@ async def get_signal(
                         conf_str = signal.get('confidence', '50%')
                         conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
                         
-                        # Сохраняем свечи для расчета волатильности (влияет на экспирацию)
+                        # Сохраняем свечи для расчета волатильности
                         closes = [c.get('close', 0) for c in hist_candles[-20:]]
-                        high = max(closes)
-                        low = min(closes)
-                        volatility_pct = ((high - low) / low) * 100 if low > 0 else 0
-                        
+                        if closes:
+                            high = max(closes)
+                            low = min(closes)
+                            volatility_pct = ((high - low) / low) * 100 if low > 0 else 0
+                        else:
+                            volatility_pct = 0
+                            
                         analyzed_candidates.append({
                             'asset': asset,
                             'signal': signal,
@@ -361,10 +361,14 @@ async def get_signal(
                             'volatility_pct': volatility_pct
                         })
                 except Exception as e:
+                    # Если один актив упал, пропускаем его и идем дальше
                     pass
 
-            # Закрываем сканирующее соединение
-            await bot_client.disconnect()
+            # Закрываем сканирующее соединение (безопасно)
+            try:
+                await bot_client.disconnect()
+            except Exception:
+                pass
             
             if not analyzed_candidates:
                 raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
@@ -484,7 +488,13 @@ async def get_signal(
             print(f"❌ Ошибка: {e}")
             import traceback
             traceback.print_exc()
-            await bot_client.disconnect()
+            
+            # Безопасно закрываем соединение (игнорируя ошибки сломанного канала)
+            try:
+                await bot_client.disconnect()
+            except:
+                pass
+                
             raise FastAPIHTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка при генерации сигнала: {str(e)}"
