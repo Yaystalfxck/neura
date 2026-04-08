@@ -260,48 +260,33 @@ async def get_signal(
         is_demo_mode = market.lower() == "demo"
         print(f"\n🔄 Режим: {'демо' if is_demo_mode else 'реальный'} (BinaryOptionsToolsV2)")
         
-        assets = []
-        use_demo = False
+        print(f"📈 BinaryOptionsToolsV2 режим — анализ всех активов...")
         
-        # Получаем payout для активов через BinaryOptionsToolsV2
-        print("📈 Получение payout через BinaryOptionsToolsV2...")
-        
+        # Анализируем ВСЕ валютные пары (без фильтра по payout)
         currency_pairs = [
-            {'id': 'EURUSD_otc', 'name': 'EUR/USD OTC'},
-            {'id': 'GBPUSD_otc', 'name': 'GBP/USD OTC'},
-            {'id': 'AUDUSD_otc', 'name': 'AUD/USD OTC'},
-            {'id': 'USDJPY_otc', 'name': 'USD/JPY OTC'},
-            {'id': 'USDCAD_otc', 'name': 'USD/CAD OTC'},
-            {'id': 'USDCHF_otc', 'name': 'USD/CHF OTC'},
-            {'id': 'AUDCAD_otc', 'name': 'AUD/CAD OTC'},
-            {'id': 'NZDUSD_otc', 'name': 'NZD/USD OTC'},
-            {'id': 'EURGBP_otc', 'name': 'EUR/GBP OTC'},
-            {'id': 'EURJPY_otc', 'name': 'EUR/JPY OTC'},
-            {'id': 'GBPJPY_otc', 'name': 'GBP/JPY OTC'},
-            {'id': 'AUDJPY_otc', 'name': 'AUD/JPY OTC'},
+            {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
+            {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
+            {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 90},
+            {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 90},
+            {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 90},
+            {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
+            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 90},
+            {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 88},
+            {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
+            {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 88},
+            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
+            {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
+            {"id": "EURCHF_otc", "name": "EUR/CHF OTC", "payout": 82},
+            {"id": "GBPCAD_otc", "name": "GBP/CAD OTC", "payout": 88},
+            {"id": "AUDCHF_otc", "name": "AUD/CHF OTC", "payout": 85},
+            {"id": "CADJPY_otc", "name": "CAD/JPY OTC", "payout": 88},
+            {"id": "CHFJPY_otc", "name": "CHF/JPY OTC", "payout": 85},
+            {"id": "NZDCAD_otc", "name": "NZD/CAD OTC", "payout": 85},
+            {"id": "NZDCHF_otc", "name": "NZD/CHF OTC", "payout": 82},
+            {"id": "NZDJPY_otc", "name": "NZD/JPY OTC", "payout": 85},
         ]
         
-        for pair in currency_pairs:
-            payout = await _po_pool.get_payout(pair['id'])
-            if payout and payout >= min_payout:
-                assets.append({
-                    "id": pair['id'],
-                    "name": pair['name'],
-                    "payout": int(payout),
-                    "market_type": "otc",
-                    "asset_type": "currency"
-                })
-        
-        print(f"✅ Найдено {len(assets)} активов с payout >= {min_payout}%")
-
-        if not assets:
-            print("⚠️ Нет активов, используем демо")
-            use_demo = True
-            assets = [
-                {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 92},
-                {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
-                {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 92},
-            ]
+        assets = currency_pairs  # Все активы для анализа
         
         # 🔍 Анализируем ВСЕ активы и выбираем с максимальной уверенностью
         print(f"\n🔍 Анализ {len(assets)} активов для выбора лучшего сигнала...")
