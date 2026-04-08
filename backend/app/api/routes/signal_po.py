@@ -7,7 +7,6 @@ import json
 import os
 import asyncio
 import random
-import time
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -360,46 +359,23 @@ async def get_signal(
             print(f"   Направление: {signal.get('signal_type', '?').upper()}")
             print(f"   Уверенность: {best['confidence']:.1f}%")
             
-            # Получаем REAL-TIME цену через BinaryOptionsToolsV2
-            print(f"\n💰 Получение REAL-TIME цены...")
-            realtime_price = history[-1]['close']  # Fallback
-            
-            try:
-                from BinaryOptionsToolsV2 import PocketOptionAsync
-                bot_client = PocketOptionAsync(ssid=session_token)
-                await bot_client.connect()
-                
-                realtime_prices = []
-                start_time = time.time()
-                
-                async for candle in await bot_client.subscribe_symbol(best_asset['id']):
-                    price_raw = candle.get('close', candle.get('price', 0))
-                    try:
-                        realtime_prices.append(float(price_raw))
-                    except:
-                        pass
-                    if time.time() - start_time >= 2.0:
-                        break
-                
-                await bot_client.disconnect()
-                
-                if realtime_prices:
-                    realtime_price = realtime_prices[-1]
-                    print(f"✅ REAL-TIME ЦЕНА: {realtime_price:.5f}")
-            except Exception as e:
-                print(f"⚠️ BinaryOptionsToolsV2 ошибка: {e}")
-            
-            # Закрываем pocketoptionapi_async
-            await client.disconnect()
-            print("✅ Отключено!")
+            # Цена = последняя свеча (самая свежая)
+            realtime_price = history[-1]['close']
+            print(f"\n💰 ЦЕНА: {realtime_price:.5f}")
             
             # Обновляем цену в сигнале
             signal['current_price'] = float(realtime_price)
+            
+            # Закрываем соединение
+            print(f"\n🔌 Отключение...")
+            await client.disconnect()
+            print("✅ Отключено!")
             
         except Exception as e:
             print(f"❌ Ошибка: {e}")
             import traceback
             traceback.print_exc()
+            await client.disconnect()
             raise FastAPIHTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка при генерации сигнала: {str(e)}"
