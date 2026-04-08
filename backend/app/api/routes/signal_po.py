@@ -330,8 +330,41 @@ async def get_signal(
                         except:
                             pass
 
-                    # Анализ на истории (теперь с гарантированно числами)
-                    signal = advanced_signal_strategy(clean_candles, asset, strategy_type)
+                    # === АНАЛИЗ: ПРИОРИТЕТ ML ===
+                    signal = None
+                    strategy_name = "INDICATORS"
+
+                    try:
+                        # 1. Попробуем ML
+                        ml_gen = get_ml()
+                        # generate_signal ожидает список словарей с ключами open, high, low, close, time
+                        ml_result = ml_gen.generate_signal(clean_candles, asset.get('name', 'Unknown'))
+                        
+                        # Если ML уверен более чем на 55% - используем его как основной источник
+                        if ml_result and ml_result.get('confidence', 0) > 0.55:
+                            signal = {
+                                "signal_type": ml_result.get('direction', 'call'),
+                                "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
+                                "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
+                                "current_price": clean_candles[-1]['close'],
+                                "expiry_minutes": 5, # Будет пересчитано ниже
+                                "pair_name": asset['name'],
+                                "trend": ml_result.get('trend', 'neutral'),
+                                "rsi": ml_result.get('rsi', 50),
+                                "pattern_detected": "ML_PREDICTION",
+                                "payout": str(asset.get('payout', 0)) + "%",
+                                "db_strategy": "MACHINE_LEARNING"
+                            }
+                            strategy_name = "MACHINE_LEARNING"
+                    except Exception:
+                        # Ошибка ML -> переход к индикаторам
+                        pass
+
+                    # 2. Если ML не дал сигнала (или низкая уверенность) -> индикаторы
+                    if signal is None:
+                        signal = advanced_signal_strategy(clean_candles, asset, strategy_type)
+                        if signal:
+                            strategy_name = signal.get('db_strategy', 'INDICATORS')
                     
                     if signal:
                         # Извлекаем уверенность
