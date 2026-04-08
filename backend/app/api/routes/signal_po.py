@@ -298,26 +298,15 @@ async def get_signal(
         print("✅ Ожидание завершено!")
 
         print("✅ BinaryOptionsToolsV2 подключено!")
-        
+
         try:
-            # Ждём чтобы соединение полностью установилось и данные обновились
-            print("⏳ Ожидание обновления данных...")
-            await asyncio.sleep(3)
-            
-            # "Пробуждаем" соединение — первый запрос сбрасывает кэш сервера
-            print("🔄 Пробуждение соединения...")
-            try:
-                # Пробуем получить payout — это проверит соединение
-                full_payout = await bot_client.payout()
-                if full_payout:
-                    print(f"✅ Payout получен: {len(full_payout)} активов")
-                else:
-                    print("⚠️ Payout пустой — возможно сессия невалидна")
-            except Exception as e:
-                print(f"⚠️ Ошибка получения payout: {e}")
-            
+            # Ждём чтобы соединение полностью установилось
+            # Не используем payout() — он часто ломает соединение ("half closed channel")
+            print("⏳ Инициализация соединения...")
+            await asyncio.sleep(2)
+
             # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
-            # Используем history() с TaskGroup — как Mastaaa1987
+            # Используем history() — самый стабильный метод для получения данных
             currency_pairs = [
                 {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
                 {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
@@ -344,7 +333,7 @@ async def get_signal(
 
             for asset in currency_pairs:
                 try:
-                    # Убраны print для ускорения цикла
+                    # Получаем историю для анализа
                     hist_candles = await bot_client.history(asset['id'], 60)
                     
                     if not hist_candles or len(hist_candles) < 20:
@@ -391,19 +380,22 @@ async def get_signal(
 
             # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ (Отдельное подключение) ===
             # Подключаемся отдельно только к лучшему активу, чтобы получить 
-            # точную цену через стрим. Это занимает ~2-3 секунды.
+            # точную цену через стрим. Это занимает ~4-5 секунды.
             print(f"   💰 Получение реальной цены...")
             realtime_price = 0.0
             
             asset_client = PocketOptionAsync(ssid=ssid_to_use)
             await asset_client.connect()
-            # Убрали сон, ждем пока стрим даст данные
+            
+            # ВАЖНО: Ждем 2 секунды для завершения авторизации на сервере
+            # Без этого стрим может не запуститься или вернуть пустоту
+            await asyncio.sleep(2.0)
             
             try:
                 # Быстрый стрим: ждем 2 тика
                 count = 0
                 start_ts = time.time()
-                # Максимальное ожидание 2.5 секунды
+                # Максимальное ожидание 4 секунды
                 async for candle in await asset_client.subscribe_symbol(best_asset['id']):
                     price = candle.get('close', candle.get('price', 0))
                     try:
@@ -411,19 +403,24 @@ async def get_signal(
                         count += 1
                     except: pass
                     
-                    if count >= 2 or (time.time() - start_ts) > 2.5:
+                    if count >= 2 or (time.time() - start_ts) > 4.0:
                         break
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"   ⚠️ Ошибка стрима: {e}")
             finally:
                 await asset_client.disconnect()
 
-            if realtime_price == 0.0:
-                # Fallback если стрим не прошел
-                realtime_price = float(signal.get('current_price', 0))
-            
-            signal['current_price'] = realtime_price
-            print(f"   ✅ Реальная цена: {realtime_price:.5f}")
+            if realtime_price > 0:
+                signal['current_price'] = realtime_price
+                print(f"   ✅ Реальная цена (Live): {realtime_price:.5f}")
+            else:
+                # Если стрим не дал данных, берем последнее закрытие (может отставать)
+                fallback = float(signal.get('current_price', 0))
+                if fallback > 0:
+                    signal['current_price'] = fallback
+                    print(f"   ⚠️ Используем цену истории (Live недоступна): {fallback:.5f}")
+                else:
+                    print(f"   ❌ Не удалось получить цену")
             
             # === ЭТАП 3: РАСЧЕТ ОПТИМАЛЬНОЙ ЭКСПИРАЦИИ ===
             # Логика: 1-10 минут, основной фокус на 3-5 минут
