@@ -273,10 +273,26 @@ async def get_signal(
         # ИСПОЛЬЗУЕМ ТОЛЬКО BinaryOptionsToolsV2 с TaskGroup (как Mastaaa1987)
         # Одно соединение для ВСЕГО — анализ + реальные цены
         print(f"\n🔌 Подключение через BinaryOptionsToolsV2...")
-
+        
         from BinaryOptionsToolsV2 import PocketOptionAsync
-
-        bot_client = PocketOptionAsync(ssid=settings.POCKETOPTION_SESSION_TOKEN)
+        
+        # ВАЖНО: ВСЕГДА используем REAL сессию для РЕАЛЬНЫХ рыночных цен!
+        # Demo сессия даёт СИМУЛИРОВАННЫЕ цены которые НЕ совпадают с реальным рынком
+        # Даже для демо-анализа нужны REAL данные
+        ssid_to_use = settings.POCKETOPTION_SESSION_TOKEN
+        
+        # Проверяем что SSID валидный
+        if not ssid_to_use or 'session' not in ssid_to_use:
+            print("❌ REAL сессия невалидна! Проверьте POCKETOPTION_SESSION_TOKEN в .env")
+            raise FastAPIHTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="REAL сессия невалидна. Обновите POCKETOPTION_SESSION_TOKEN в .env"
+            )
+        
+        print(f"   SSID: {ssid_to_use[:60]}...")
+        print(f"   Режим: REAL рыночные данные")
+        
+        bot_client = PocketOptionAsync(ssid=ssid_to_use)
         await bot_client.connect()
 
         # Ждём чтобы соединение установилось (как в Mastaaa1987)
@@ -292,10 +308,14 @@ async def get_signal(
             # "Пробуждаем" соединение — первый запрос сбрасывает кэш сервера
             print("🔄 Пробуждение соединения...")
             try:
-                await bot_client.history("EURUSD_otc", 60)
-                await asyncio.sleep(1)
-            except:
-                pass  # Игнорируем ошибки пробуждения
+                # Пробуем получить payout — это проверит соединение
+                full_payout = await bot_client.payout()
+                if full_payout:
+                    print(f"✅ Payout получен: {len(full_payout)} активов")
+                else:
+                    print("⚠️ Payout пустой — возможно сессия невалидна")
+            except Exception as e:
+                print(f"⚠️ Ошибка получения payout: {e}")
             
             # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
             # Используем history() с TaskGroup — как Mastaaa1987
@@ -317,10 +337,11 @@ async def get_signal(
             print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup...")
 
             # Mastaaa1987 pattern: TaskGroup для ПАРАЛЛЕЛЬНОГО получения данных
+            # ВАЖНО: используем get_candles() вместо history() — как в test_po_websocket_realtime.py
             history_tasks = {}
             async with asyncio.TaskGroup() as tg:
                 for asset in currency_pairs:
-                    task = tg.create_task(bot_client.history(asset['id'], 60))
+                    task = tg.create_task(bot_client.get_candles(asset['id'], 60, 100))
                     history_tasks[asset['id']] = {'task': task, 'asset': asset}
 
             # Ждём чтобы все задачи завершились
