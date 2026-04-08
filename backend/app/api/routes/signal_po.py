@@ -290,111 +290,120 @@ async def get_signal(
             ]
             
             assets = currency_pairs
-        
-        # 🔍 Анализируем ВСЕ активы и выбираем с максимальной уверенностью
-        print(f"\n🔍 Анализ {len(assets)} активов для выбора лучшего сигнала...")
-        
-        analyzed_signals = []
-        
-        for asset in assets:
-            try:
-                # Получаем историю через ПОСТОЯННОЕ соединение
-                candles_data = await client.get_candles(asset['id'], 60, 100)
-                
-                if not candles_data or len(candles_data) < 20:
-                    print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
-                    continue
-                
-                # Конвертируем в формат для анализа
-                history = []
-                for c in candles_data:
-                    history.append({
-                        'time': c.get('time', 0),
-                        'open': float(c.get('open', 0)),
-                        'high': float(c.get('high', 0)),
-                        'low': float(c.get('low', 0)),
-                        'close': float(c.get('close', 0)),
-                    })
-                
-                # Генерируем сигнал для этого актива
-                signal = advanced_signal_strategy(history, asset, strategy_type)
-                
-                if not signal:
-                    signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
-                
-                if signal:
-                    # Извлекаем уверенность (confidence)
-                    conf_str = signal.get('confidence', '50%')
-                    if isinstance(conf_str, str):
-                        confidence = float(conf_str.replace('%', ''))
-                    else:
-                        confidence = float(conf_str)
-                    
-                    analyzed_signals.append({
-                        'asset': asset,
-                        'signal': signal,
-                        'history': history,
-                        'confidence': confidence
-                    })
-                    
-                    print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%)")
-                
-            except Exception as e:
-                print(f"   ❌ {asset['name']}: ошибка анализа — {e}")
-        
-        if not analyzed_signals:
-            print("❌ Не удалось проанализировать ни один актив")
+
+            # 🔍 Анализируем ВСЕ активы и выбираем с максимальной уверенностью
+            print(f"\n🔍 Анализ {len(assets)} активов для выбора лучшего сигнала...")
+
+            analyzed_signals = []
+
+            for asset in assets:
+                try:
+                    # Получаем историю через ПОСТОЯННОЕ соединение
+                    candles_data = await client.get_candles(asset['id'], 60, 100)
+
+                    if not candles_data or len(candles_data) < 20:
+                        print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
+                        continue
+
+                    # Конвертируем в формат для анализа
+                    history = []
+                    for c in candles_data:
+                        history.append({
+                            'time': c.get('time', 0),
+                            'open': float(c.get('open', 0)),
+                            'high': float(c.get('high', 0)),
+                            'low': float(c.get('low', 0)),
+                            'close': float(c.get('close', 0)),
+                        })
+
+                    # Генерируем сигнал для этого актива
+                    signal = advanced_signal_strategy(history, asset, strategy_type)
+
+                    if not signal:
+                        signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
+
+                    if signal:
+                        # Извлекаем уверенность (confidence)
+                        conf_str = signal.get('confidence', '50%')
+                        if isinstance(conf_str, str):
+                            confidence = float(conf_str.replace('%', ''))
+                        else:
+                            confidence = float(conf_str)
+
+                        analyzed_signals.append({
+                            'asset': asset,
+                            'signal': signal,
+                            'history': history,
+                            'confidence': confidence
+                        })
+
+                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%)")
+
+                except Exception as e:
+                    print(f"   ❌ {asset['name']}: ошибка анализа — {e}")
+
+            if not analyzed_signals:
+                print("❌ Не удалось проанализировать ни один актив")
+                await client.disconnect()
+                raise FastAPIHTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Не удалось сгенерировать сигнал"
+                )
+
+            # 🏆 Выбираем актив с МАКСИМАЛЬНОЙ уверенностью
+            best = max(analyzed_signals, key=lambda x: x['confidence'])
+            best_asset = best['asset']
+            signal = best['signal']
+            history = best['history']
+            optimal_timeframe = 5
+
+            print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
+            print(f"   Направление: {signal.get('signal_type', '?').upper()}")
+            print(f"   Уверенность: {best['confidence']:.1f}%")
+            print(f"   Payout: {best_asset['payout']}%")
+
+            # Получаем РЕАЛЬНУЮ текущую цену для лучшего актива
+            print(f"\n💰 Получение РЕАЛЬНОЙ цены для {best_asset['name']}...")
+            realtime_price = None
+
+            realtime_prices = []
+            import time
+            start_time = time.time()
+
+            async for candle in await client.subscribe_symbol(best_asset['id']):
+                price_raw = candle.get('close', candle.get('price', 0))
+                try:
+                    price = float(price_raw)
+                    realtime_prices.append(price)
+                except:
+                    pass
+
+                if time.time() - start_time >= 3.0:
+                    break
+
+            if realtime_prices:
+                realtime_price = realtime_prices[-1]
+                print(f"✅ РЕАЛЬНАЯ ЦЕНА: {realtime_price:.5f}")
+            else:
+                realtime_price = history[-1]['close']
+                print(f"⚠️ Real-time не получен, используем историю: {realtime_price:.5f}")
+
+            # Закрываем соединение
+            print(f"\n🔌 Отключение...")
             await client.disconnect()
+            print("✅ Отключено!")
+
+            # Обновляем цену в сигнале
+            signal['current_price'] = float(realtime_price)
+
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            import traceback
+            traceback.print_exc()
             raise FastAPIHTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Не удалось сгенерировать сигнал"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка при генерации сигнала: {str(e)}"
             )
-        
-        # 🏆 Выбираем актив с МАКСИМАЛЬНОЙ уверенностью
-        best = max(analyzed_signals, key=lambda x: x['confidence'])
-        best_asset = best['asset']
-        signal = best['signal']
-        history = best['history']
-        optimal_timeframe = 5
-        
-        print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
-        print(f"   Направление: {signal.get('signal_type', '?').upper()}")
-        print(f"   Уверенность: {best['confidence']:.1f}%")
-        print(f"   Payout: {best_asset['payout']}%")
-
-        # Получаем РЕАЛЬНУЮ текущую цену для лучшего актива
-        print(f"\n💰 Получение РЕАЛЬНОЙ цены для {best_asset['name']}...")
-        realtime_price = None
-        
-        realtime_prices = []
-        import time
-        start_time = time.time()
-        
-        async for candle in await client.subscribe_symbol(best_asset['id']):
-            price_raw = candle.get('close', candle.get('price', 0))
-            try:
-                price = float(price_raw)
-                realtime_prices.append(price)
-            except:
-                pass
-            
-            if time.time() - start_time >= 3.0:
-                break
-        
-        if realtime_prices:
-            realtime_price = realtime_prices[-1]
-            print(f"✅ РЕАЛЬНАЯ ЦЕНА: {realtime_price:.5f}")
-        else:
-            realtime_price = history[-1]['close']
-            print(f"⚠️ Real-time не получен, используем историю: {realtime_price:.5f}")
-        
-        # Закрываем соединение
-        print(f"\n🔌 Отключение...")
-        await client.disconnect()
-        print("✅ Отключено!")
-
-        # Обновляем цену в сигнале
-        signal['current_price'] = float(realtime_price)
         
         print(f"\n✅ СИГНАЛ СГЕНЕРИРОВАН:")
         print(f"   Пара: {signal['pair_name']}")
