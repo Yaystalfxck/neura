@@ -7,6 +7,8 @@ import json
 import os
 import asyncio
 import random
+import time
+import concurrent.futures
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -279,10 +281,20 @@ async def get_signal(
         print("✅ Подключено!")
         
         try:
+            # Небольшая задержка чтобы соединение полностью установилось
+            await asyncio.sleep(1)
+            
             # Очищаем кэш свечей чтобы получить свежие данные!
             if hasattr(client, '_candles_cache'):
                 client._candles_cache.clear()
                 print("🗑️ Кэш свечей очищен")
+            
+            # Двойной запрос для получения самых свежих данных
+            # Первый запрос "пробуждает" соединение
+            await client.get_candles("EURUSD_otc", timeframe=60, count=10)
+            # Очищаем кэш снова
+            if hasattr(client, '_candles_cache'):
+                client._candles_cache.clear()
             
             # Анализируем ВСЕ валютные пары
             currency_pairs = [
@@ -448,9 +460,41 @@ async def get_signal(
             print(f"   Направление: {signal.get('signal_type', '?').upper()}")
             print(f"   Уверенность: {best['confidence']:.1f}%")
             
-            # Цена = последняя свеча (самая свежая)
-            realtime_price = history[-1]['close']
-            print(f"\n💰 ЦЕНА: {realtime_price:.5f}")
+            # Цена из истории (последняя закрытая свеча)
+            hist_price = history[-1]['close']
+            print(f"\n💰 Историческая цена: {hist_price:.5f}")
+            
+            # Получаем РЕАЛЬНУЮ текущую цену через отдельное соединение
+            print(f"💰 Получение реальной цены...")
+            realtime_price = hist_price  # Fallback
+            
+            try:
+                from BinaryOptionsToolsV2 import PocketOptionAsync
+                bot_client = PocketOptionAsync(ssid=settings.POCKETOPTION_SESSION_TOKEN)
+                await bot_client.connect()
+                
+                # Подписываемся на стрим для лучшего актива
+                real_prices = []
+                start_ts = time.time()
+                
+                async for candle in await bot_client.subscribe_symbol(best_asset['id']):
+                    price_raw = candle.get('close', candle.get('price', 0))
+                    try:
+                        real_prices.append(float(price_raw))
+                    except:
+                        pass
+                    if time.time() - start_ts >= 2.0:  # 2 секунды стрим
+                        break
+                
+                await bot_client.disconnect()
+                
+                if real_prices:
+                    realtime_price = real_prices[-1]
+                    print(f"✅ Реальная цена: {realtime_price:.5f}")
+                else:
+                    print(f"⚠️ Стрим не получен, используем историю: {hist_price:.5f}")
+            except Exception as e:
+                print(f"⚠️ Ошибка получения реальной цены: {e}")
             
             # Обновляем цену в сигнале
             signal['current_price'] = float(realtime_price)
