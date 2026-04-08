@@ -332,32 +332,20 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup (history)...")
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов (последовательно)...")
 
-            # Mastaaa1987 pattern: TaskGroup + history() + asyncio.shield
-            # ВАЖНО: используем history() вместо get_candles()!
-            history_tasks = {}
-            async with asyncio.TaskGroup() as tg:
-                for asset in currency_pairs:
-                    # history() как в Mastaaa1987 — работает с TaskGroup
-                    task = tg.create_task(bot_client.history(asset['id'], 60))
-                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
-            
-            # Ждём завершения всех задач (как Mastaaa1987)
-            print("⏳ Ожидание 8 сек для получения данных...")
-            await asyncio.sleep(8)
-            
-            # Собираем результаты через shield (как Mastaaa1987)
-            print("📊 Сбор результатов...")
+            # Получаем данные ПОСЛЕДОВАТЕЛЬНО через get_candles() — как в test_po_websocket_realtime.py
+            # TaskGroup с history() даёт устаревшие цены!
             analyzed_signals = []
-            
-            for asset_id, data in history_tasks.items():
-                asset = data['asset']
+
+            for asset in currency_pairs:
                 try:
-                    candles_data = await asyncio.shield(data['task'])
-                    
+                    print(f"   📡 {asset['name']}...")
+                    # get_candles() даёт СВЕЖИЕ данные как в тесте
+                    candles_data = await bot_client.get_candles(asset['id'], 60, 100)
+
                     if not candles_data or len(candles_data) < 20:
-                        print(f"   ⚠️ {asset['name']}: недостаточно данных")
+                        print(f"   ⚠️ недостаточно данных")
                         continue
 
                     print(f"   ✅ {asset['name']}: {len(candles_data)} свечей")
