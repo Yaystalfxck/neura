@@ -105,7 +105,7 @@ async def get_pooled_ws_client():
             except:
                 pass
             _global_ws_client = None
-            
+
             # Останавливаем старую keepalive задачу
             if _global_keepalive_task and not _global_keepalive_task.done():
                 _global_keepalive_task.cancel()
@@ -124,10 +124,27 @@ async def get_pooled_ws_client():
         else:
             _global_ws_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
 
+        # Подключаемся
         await _global_ws_client.connect()
+        
+        # ВАЖНО: Ждем загрузки активов перед использованием!
+        # BinaryOptionsToolsV2 требует инициализации каналов
+        if USE_BOT_V2:
+            try:
+                print("⏳ Ожидание загрузки активов...")
+                await asyncio.wait_for(
+                    _global_ws_client.wait_for_assets(timeout=30.0),
+                    timeout=35.0
+                )
+                print("✅ Активы загружены")
+            except Exception as asset_err:
+                print(f"⚠️ Ошибка загрузки активов: {asset_err}")
+                # Пробуем продолжить - иногда работает без ожидания
+                await asyncio.sleep(3)
+        
         _global_ws_last_active = time.time()
         print("✅ Новое соединение создано и готово к работе.")
-        
+
         # Запускаем keepalive цикл для нового соединения
         if _global_keepalive_task is None or _global_keepalive_task.done():
             _global_keepalive_task = asyncio.create_task(_keepalive_loop())
@@ -417,6 +434,9 @@ async def get_signal(
         print("✅ Используем соединение из пула для сканирования...")
 
         # 2. Цикл анализа с авто-восстановлением
+        reconnect_attempts = 0
+        max_reconnect_attempts = 2  # Максимум 2 попытки переподключения
+        
         for asset in currency_pairs:
             try:
                 # Запрос свечей (10000 сек истории)
@@ -480,16 +500,29 @@ async def get_signal(
             except Exception as e:
                 err_msg = str(e).lower()
                 # АВТО-ПЕРЕПОДКЛЮЧЕНИЕ при разрыве
-                if "half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg:
-                    print(f"   ⚠️ Разрыв связи! Переподключение...")
+                if ("half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg or "channel" in err_msg) and reconnect_attempts < max_reconnect_attempts:
+                    reconnect_attempts += 1
+                    print(f"   ⚠️ Разрыв связи! Попытка переподключения {reconnect_attempts}/{max_reconnect_attempts}...")
 
                     # Сбрасываем пул, чтобы следующий запрос создал новый
                     _global_ws_client = None
+                    
+                    # Останавливаем keepalive
+                    global _global_keepalive_task
+                    if _global_keepalive_task and not _global_keepalive_task.done():
+                        _global_keepalive_task.cancel()
+                        try:
+                            await _global_keepalive_task
+                        except asyncio.CancelledError:
+                            pass
 
                     # Для ТЕКУЩЕГО запроса пытаемся переподключиться
                     try:
                         bot_client = await get_pooled_ws_client()
                         _global_ws_last_active = time.time() # Обновляем таймер
+                        
+                        # Небольшая пауза после подключения
+                        await asyncio.sleep(2)
 
                         hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
                         if hist_candles and len(hist_candles) >= 20:
@@ -507,10 +540,17 @@ async def get_signal(
                                     closes = [c['close'] for c in clean_candles[-20:]]
                                     volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
                                     analyzed_candidates.append({'asset': asset, 'signal': signal, 'confidence': conf, 'volatility_pct': volatility_pct})
+                                    print(f"   ✅ После переподключения: сигнал получен!")
+                                    reconnect_attempts = 0  # Сбрасываем счетчик после успеха
                     except Exception as retry_err:
                         print(f"   ❌ Ошибка после переподключения: {retry_err}")
+                        # Если снова ошибка - прекращаем попытки
+                        reconnect_attempts = max_reconnect_attempts
                 else:
-                    print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+                    if reconnect_attempts >= max_reconnect_attempts:
+                        print(f"   ❌ Превышен лимит переподключений, пропускаем {asset['id']}")
+                    else:
+                        print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
 
         # ВАЖНО: Мы НЕ закрываем соединение (bot_client.disconnect()) здесь.
         # Оно остается в пуле (_global_ws_client) для следующих пользователей.
