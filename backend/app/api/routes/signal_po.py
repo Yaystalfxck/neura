@@ -332,20 +332,35 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Последовательный анализ {len(currency_pairs)} активов...")
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup (history)...")
 
-            # Получаем данные ПОСЛЕДОВАТЕЛЬНО — это надёжнее чем TaskGroup
+            # Mastaaa1987 pattern: TaskGroup + history() + asyncio.shield
+            # ВАЖНО: используем history() вместо get_candles()!
+            history_tasks = {}
+            async with asyncio.TaskGroup() as tg:
+                for asset in currency_pairs:
+                    # history() как в Mastaaa1987 — работает с TaskGroup
+                    task = tg.create_task(bot_client.history(asset['id'], 60))
+                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
+            
+            # Ждём завершения всех задач (как Mastaaa1987)
+            print("⏳ Ожидание 8 сек для получения данных...")
+            await asyncio.sleep(8)
+            
+            # Собираем результаты через shield (как Mastaaa1987)
+            print("📊 Сбор результатов...")
             analyzed_signals = []
-
-            for asset in currency_pairs:
+            
+            for asset_id, data in history_tasks.items():
+                asset = data['asset']
                 try:
-                    print(f"   📡 {asset['name']}...")
-                    # Используем get_candles() — тот же метод что в тесте
-                    candles_data = await bot_client.get_candles(asset['id'], 60, 100)
-
+                    candles_data = await asyncio.shield(data['task'])
+                    
                     if not candles_data or len(candles_data) < 20:
-                        print(f"   ⚠️ недостаточно данных")
+                        print(f"   ⚠️ {asset['name']}: недостаточно данных")
                         continue
+
+                    print(f"   ✅ {asset['name']}: {len(candles_data)} свечей")
 
                     # Конвертируем в формат для анализа
                     history = []
