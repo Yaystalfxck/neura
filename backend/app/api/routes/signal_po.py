@@ -17,13 +17,8 @@ from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
 from app.po_strategies_advanced import advanced_signal_strategy
-from app.po_strategies_enhanced import (
-    calculate_stochastic,
-    calculate_cci,
-    detect_candlestick_pattern,
-    calculate_support_resistance
-)
 from app.signal_limits import get_signal_limits, get_next_limit_balance
+from app.pocketoptionapi_async.client import AsyncPocketOptionClient
 
 settings = get_settings()
 
@@ -237,86 +232,48 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # === ГЕНЕРАЦИЯ СИГНАЛА ===
+        # === ГЕНЕРАЦИЯ СИГНАЛА (ROBUST CONNECTION POOL) ===
         print(f"\n🚀 Начинаем генерацию сигнала...")
-        
-        # ИСПОЛЬЗУЕМ ТОЛЬКО BinaryOptionsToolsV2 с TaskGroup (как Mastaaa1987)
-        # Одно соединение для ВСЕГО — анализ + реальные цены
-        print(f"🔌 Подключение через BinaryOptionsToolsV2...")
-        
-        from BinaryOptionsToolsV2 import PocketOptionAsync
-        
-        # ВАЖНО: ВСЕГДА используем REAL сессию для РЕАЛЬНЫХ рыночных цен!
-        # Demo сессия даёт СИМУЛИРОВАННЫЕ цены которые НЕ совпадают с реальным рынком
-        # Даже для демо-анализа нужны REAL данные
+
         ssid_to_use = settings.POCKETOPTION_SESSION_TOKEN
+        is_demo_mode = '"isDemo":1' in ssid_to_use or '"isDemo": 1' in ssid_to_use
         
-        # Проверяем что SSID валидный
-        if not ssid_to_use or 'session' not in ssid_to_use:
-            print("❌ REAL сессия невалидна! Проверьте POCKETOPTION_SESSION_TOKEN в .env")
-            raise FastAPIHTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="REAL сессия невалидна. Обновите POCKETOPTION_SESSION_TOKEN в .env"
-            )
+        print(f"🔌 Подключение через PocketOptionAsync (Robust Pool)...")
+        print(f"   SSID: {ssid_to_use[:40]}...")
+        print(f"   Режим: {'DEMO' if is_demo_mode else 'REAL'}")
+
+        bot_client = None
+        analyzed_candidates = []
         
-        print(f"   SSID: {ssid_to_use[:60]}...")
-        print(f"   Режим: REAL рыночные данные")
-
-        print("🔌 Создание клиента...")
-        bot_client = PocketOptionAsync(ssid=ssid_to_use)
-        print("🔌 Подключение к серверу...")
-        await bot_client.connect()
-        print("✅ Соединение установлено!")
-
-        # Ждём чтобы соединение установилось (как в Mastaaa1987)
-        # ВАЖНО: нужно ждать ДОЛЬШЕ чтобы сервер начал слать данные
-        print("⏳ Ожидание 5 сек для инициализации WebSocket стрима...")
-        await asyncio.sleep(5)
-        print("✅ Ожидание завершено!")
-
-        print("✅ BinaryOptionsToolsV2 подключено!")
+        # Список активов для анализа
+        currency_pairs = [
+            {"id": "EURUSD_otc", "name": "EUR/USD OTC"}, {"id": "GBPUSD_otc", "name": "GBP/USD OTC"},
+            {"id": "AUDUSD_otc", "name": "AUD/USD OTC"}, {"id": "USDJPY_otc", "name": "USD/JPY OTC"},
+            {"id": "USDCAD_otc", "name": "USD/CAD OTC"}, {"id": "USDCHF_otc", "name": "USD/CHF OTC"},
+            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC"}, {"id": "NZDUSD_otc", "name": "NZD/USD OTC"},
+            {"id": "EURGBP_otc", "name": "EUR/GBP OTC"}, {"id": "EURJPY_otc", "name": "EUR/JPY OTC"},
+            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC"}, {"id": "AUDJPY_otc", "name": "AUD/JPY OTC"},
+        ]
 
         try:
-            # Сразу приступаем к анализу.
-            # Убрали сон: сервер может отключать клиентов за бездействие после подключения.
-            print("⏳ Запуск сканирования активов...")
-
-            # Анализируем ВСЕ валютные пары через BinaryOptionsToolsV2
-            # Используем history() — самый стабильный метод для получения данных
-            currency_pairs = [
-                {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 90},
-                {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 88},
-                {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 90},
-                {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 90},
-                {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 90},
-                {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
-                {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 90},
-                {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 88},
-                {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
-                {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 88},
-                {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 88},
-                {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
-            ]
-
-            # === ЭТАП 1: БЫСТРЫЙ СКАН ВСЕХ АКТИВОВ (Одно подключение) ===
-            # Используем текущее подключение (bot_client), чтобы быстро собрать историю для анализа.
-            print(f"\n🔍 Этап 1: Быстрый анализ 12 активов...")
+            # 1. Инициализация клиента
+            bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
             
-            analyzed_candidates = []
+            print("📡 Подключение...")
+            await bot_client.connect()
+            # ВАЖНО: Убрали sleep(5), чтобы сервер не убил соединение за бездействие!
+            print("✅ Connected! Начинаем сканирование...")
 
+            # 2. Цикл анализа с авто-восстановлением
             for asset in currency_pairs:
                 try:
-                    # Используем get_candles()
-                    # 3-й параметр (offset) — это период истории В СЕКУНДАХ.
-                    # 10000 секунд ≈ 2.7 часа данных, что даст нам ~160 свечей.
+                    # Запрос свечей (10000 сек истории)
                     hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
                     
                     if not hist_candles or len(hist_candles) < 20:
-                        # print(f"   ⚠️ {asset['id']}: мало данных ({len(hist_candles) if hist_candles else 0})")
                         continue
 
-                    # === ВАЖНО: Конвертируем строки в числа ===
-                    # API часто отдает цены как строки ('1.1500'), что ломает математику
+                    # Конвертация в числа
                     clean_candles = []
                     for c in hist_candles:
                         try:
@@ -327,192 +284,183 @@ async def get_signal(
                                 'low': float(c.get('low', 0)),
                                 'close': float(c.get('close', 0)),
                             })
-                        except:
-                            pass
+                        except: pass
 
-                    # === АНАЛИЗ: ПРИОРИТЕТ ML ===
+                    # ML Анализ
                     signal = None
-                    strategy_name = "INDICATORS"
-
                     try:
-                        # 1. Попробуем ML
                         ml_gen = get_ml()
-                        # Сначала обучаем модель на текущей истории
                         ml_gen.train(clean_candles)
-                        
-                        # Затем пытаемся получить предсказание
                         ml_result = ml_gen.predict(clean_candles)
-                        
-                        # Если ML уверен более чем на 55% - используем его как основной источник
                         if ml_result and ml_result.get('confidence', 0) > 0.55:
                             signal = {
                                 "signal_type": ml_result.get('direction', 'call'),
                                 "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
                                 "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
                                 "current_price": clean_candles[-1]['close'],
-                                "expiry_minutes": 5, # Будет пересчитано ниже
+                                "expiry_minutes": 5,
                                 "pair_name": asset['name'],
                                 "trend": ml_result.get('trend', 'neutral'),
                                 "rsi": ml_result.get('rsi', 50),
                                 "pattern_detected": "ML_PREDICTION",
-                                "payout": str(asset.get('payout', 0)) + "%",
+                                "payout": "85%",
                                 "db_strategy": "MACHINE_LEARNING"
                             }
-                            strategy_name = "MACHINE_LEARNING"
-                    except Exception:
-                        # Ошибка ML -> переход к индикаторам
-                        pass
+                    except Exception as ml_err:
+                        print(f"   ⚠️ ML ошибка для {asset['id']}: {ml_err}")
 
-                    # 2. Если ML не дал сигнала (или низкая уверенность) -> индикаторы
+                    # Индикаторы (если ML не дал сигнала)
                     if signal is None:
-                        signal = advanced_signal_strategy(clean_candles, asset, strategy_type)
-                        if signal:
-                            strategy_name = signal.get('db_strategy', 'INDICATORS')
-                    
+                        signal = advanced_signal_strategy(clean_candles, asset, "indicators")
+
                     if signal:
-                        # Извлекаем уверенность
                         conf_str = signal.get('confidence', '50%')
                         conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
                         
-                        # Сохраняем свечи для расчета волатильности
-                        # ВАЖНО: принудительно конвертируем в float, так как API может отдавать строки
                         closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
+                        volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
                         
-                        if closes:
-                            high = max(closes)
-                            low = min(closes)
-                            volatility_pct = ((high - low) / low) * 100 if low > 0 else 0
-                        else:
-                            volatility_pct = 0
-                            
                         analyzed_candidates.append({
-                            'asset': asset,
-                            'signal': signal,
-                            'confidence': conf,
-                            'volatility_pct': volatility_pct
+                            'asset': asset, 'signal': signal, 
+                            'confidence': conf, 'volatility_pct': volatility_pct
                         })
+
                 except Exception as e:
-                    # Если один актив упал, пропускаем его и идем дальше
-                    # ВКЛЮЧАЕМ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ
-                    print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+                    err_msg = str(e).lower()
+                    # АВТО-ПЕРЕПОДКЛЮЧЕНИЕ при разрыве
+                    if "half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg:
+                        print(f"   ⚠️ Разрыв связи! Переподключение для {asset['id']}...")
+                        try: await bot_client.disconnect() 
+                        except: pass
+                        
+                        bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
+                        await bot_client.connect()
+                        print(f"   ✅ Переподключено. Повтор {asset['id']}...")
+                        
+                        try:
+                            hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
+                            if hist_candles and len(hist_candles) >= 20:
+                                # ... (Краткая логика обработки, аналогичная основной) ...
+                                clean_candles = [{'time': c.get('time', 0), 'open': float(c.get('open',0)), 'high': float(c.get('high',0)), 'low': float(c.get('low',0)), 'close': float(c.get('close',0))} for c in hist_candles if c.get('close')]
+                                signal = advanced_signal_strategy(clean_candles, asset, "indicators")
+                                if signal:
+                                    conf_str = signal.get('confidence', '50%')
+                                    conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+                                    closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
+                                    volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
+                                    analyzed_candidates.append({'asset': asset, 'signal': signal, 'confidence': conf, 'volatility_pct': volatility_pct})
+                        except: pass
+                    else:
+                        print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
 
-            # Закрываем сканирующее соединение (безопасно)
-            try:
-                await bot_client.disconnect()
-            except Exception:
-                pass
+        finally:
+            # 3. ГАРАНТИРОВАННОЕ ЗАКРЫТИЕ
+            print(f"\n🔌 Завершение: Закрытие WebSocket соединения...")
+            if bot_client:
+                try: await bot_client.disconnect()
+                except: pass
+            print("✅ Соединение закрыто.")
+
+        if not analyzed_candidates:
+            raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
+
+        # Выбираем лучший актив по уверенности
+        best_candidate = max(analyzed_candidates, key=lambda x: x['confidence'])
+        best_asset = best_candidate['asset']
+        signal = best_candidate['signal']
+        volatility = best_candidate['volatility_pct']
+
+        print(f"\n🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']} (Уверенность: {best_candidate['confidence']}%)")
+        print(f"   📉 Волатильность: {volatility:.3f}%")
+
+        # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ (Отдельное подключение) ===
+        # Подключаемся отдельно только к лучшему активу, чтобы получить
+        # точную цену через стрим. Это занимает ~4-5 секунды.
+        print(f"   💰 Получение реальной цены...")
+        realtime_price = 0.0
+
+        try:
+            # Используем pocketoptionapi_async для получения актуальной цены
+            # Она стабильнее работает в Docker
+            price_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
+            await price_client.connect()
             
-            if not analyzed_candidates:
-                raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
-
-            # Выбираем лучший актив по уверенности
-            best_candidate = max(analyzed_candidates, key=lambda x: x['confidence'])
-            best_asset = best_candidate['asset']
-            signal = best_candidate['signal']
-            volatility = best_candidate['volatility_pct']
-
-            print(f"\n🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']} (Уверенность: {best_candidate['confidence']}%)")
-            print(f"   📉 Волатильность: {volatility:.3f}%")
-
-            # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ (Отдельное подключение) ===
-            # Подключаемся отдельно только к лучшему активу, чтобы получить 
-            # точную цену через стрим. Это занимает ~4-5 секунды.
-            print(f"   💰 Получение реальной цены...")
-            realtime_price = 0.0
+            # Запрашиваем свежие свечи (1 минута) для получения последней цены
+            last_candles = await price_client.get_candles(best_asset['id'], 60, 100)
+            if last_candles and len(last_candles) > 0:
+                realtime_price = float(last_candles[-1].get('close', 0))
             
-            asset_client = PocketOptionAsync(ssid=ssid_to_use)
-            await asset_client.connect()
-            
-            # ВАЖНО: Ждем 2 секунды для завершения авторизации на сервере
-            # Без этого стрим может не запуститься или вернуть пустоту
-            await asyncio.sleep(2.0)
-            
-            try:
-                # Быстрый стрим: ждем 2 тика
-                count = 0
-                start_ts = time.time()
-                # Максимальное ожидание 4 секунды
-                async for candle in await asset_client.subscribe_symbol(best_asset['id']):
-                    price = candle.get('close', candle.get('price', 0))
-                    try:
-                        realtime_price = float(price)
-                        count += 1
-                    except: pass
-                    
-                    if count >= 2 or (time.time() - start_ts) > 4.0:
-                        break
-            except Exception as e:
-                print(f"   ⚠️ Ошибка стрима: {e}")
-            finally:
-                await asset_client.disconnect()
+            await price_client.disconnect()
+        except Exception as e:
+            print(f"   ⚠️ Ошибка получения цены: {e}")
 
-            if realtime_price > 0:
-                signal['current_price'] = realtime_price
-                print(f"   ✅ Реальная цена (Live): {realtime_price:.5f}")
+        if realtime_price > 0:
+            signal['current_price'] = realtime_price
+            print(f"   ✅ Реальная цена (Live): {realtime_price:.5f}")
+        else:
+            # Если стрим не дал данных, берем последнее закрытие (может отставать)
+            fallback = float(signal.get('current_price', 0))
+            if fallback > 0:
+                signal['current_price'] = fallback
+                print(f"   ⚠️ Используем цену истории (Live недоступна): {fallback:.5f}")
             else:
-                # Если стрим не дал данных, берем последнее закрытие (может отставать)
-                fallback = float(signal.get('current_price', 0))
-                if fallback > 0:
-                    signal['current_price'] = fallback
-                    print(f"   ⚠️ Используем цену истории (Live недоступна): {fallback:.5f}")
-                else:
-                    print(f"   ❌ Не удалось получить цену")
-            
-            # === ЭТАП 3: РАСЧЕТ ОПТИМАЛЬНОЙ ЭКСПИРАЦИИ ===
-            # Логика: 1-10 минут, основной фокус на 3-5 минут
-            # Используем волатильность для выбора времени
-            import random
-            
-            # Волатильность рассчитывается как % изменения цены за последние 20 свечей
-            # 0.1% - Низкая, 0.3% - Средняя, 0.5%+ - Высокая
-            
-            if volatility < 0.15:
-                # Низкая волатильность: рынок "спит", нужно ждать дольше для движения
-                # Рекомендация: 5-7 минут
-                optimal_timeframe = 5 
-                print(f"   🐢 Низкая волатильность -> экспирация {optimal_timeframe} мин")
-            elif volatility < 0.35:
-                # Средняя волатильность: "Золотая середина"
-                # Рекомендация: 3-5 минут (Основной фокус)
-                optimal_timeframe = random.choice([3, 4, 5]) 
-                print(f"   ⚖️ Средняя волатильность -> экспирация {optimal_timeframe} мин")
-            elif volatility < 0.60:
-                # Высокая волатильность: быстрые движения, нужно забирать прибыль быстро
-                # Рекомендация: 2-4 минуты
-                optimal_timeframe = random.choice([2, 3, 4])
-                print(f"   🚀 Высокая волатильность -> экспирация {optimal_timeframe} мин")
-            else:
-                # Очень высокая волатильность: скальпинг
-                # Рекомендация: 1-2 минуты
-                optimal_timeframe = random.choice([1, 2])
-                print(f"   ⚡ Очень высокая волатильность -> экспирация {optimal_timeframe} мин")
+                print(f"   ❌ Не удалось получить цену")
 
-            print(f"   ⏱️ Итоговое рекомендуемое время: {optimal_timeframe} мин")
-            signal['expiry_minutes'] = optimal_timeframe # Обновляем в сигнале
+        # === ЭТАП 3: РАСЧЕТ ОПТИМАЛЬНОЙ ЭКСПИРАЦИИ ===
+        # Логика: 1-10 минут, основной фокус на 3-5 минут
+        # Используем волатильность для выбора времени
+        import random
 
-            print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
-            print(f"   Направление: {signal.get('signal_type', '?').upper()}")
-            print(f"   Уверенность: {best_candidate['confidence']:.1f}%")
-            print(f"   💰 Реальная цена: {realtime_price:.5f}")
+        # Волатильность рассчитывается как % изменения цены за последние 20 свечей
+        # 0.1% - Низкая, 0.3% - Средняя, 0.5%+ - Высокая
 
-            # Обновляем цену в сигнале
-            signal['current_price'] = float(realtime_price)
+        if volatility < 0.15:
+            # Низкая волатильность: рынок "спит", нужно ждать дольше для движения
+            # Рекомендация: 5-7 минут
+            optimal_timeframe = 5 
+            print(f"   🐢 Низкая волатильность -> экспирация {optimal_timeframe} мин")
+        elif volatility < 0.35:
+            # Средняя волатильность: "Золотая середина"
+            # Рекомендация: 3-5 минут (Основной фокус)
+            optimal_timeframe = random.choice([3, 4, 5])
+            print(f"   ⚖️ Средняя волатильность -> экспирация {optimal_timeframe} мин")
+        elif volatility < 0.60:
+            # Высокая волатильность: быстрые движения, нужно забирать прибыль быстро
+            # Рекомендация: 2-4 минуты
+            optimal_timeframe = random.choice([2, 3, 4])
+            print(f"   🚀 Высокая волатильность -> экспирация {optimal_timeframe} мин")
+        else:
+            # Очень высокая волатильность: скальпинг
+            # Рекомендация: 1-2 минуты
+            optimal_timeframe = random.choice([1, 2])
+            print(f"   ⚡ Очень высокая волатильность -> экспирация {optimal_timeframe} мин")
 
-            # Форматируем и возвращаем
-            return {
-                "success": True,
-                "signal": format_signal_response(signal, user_balance),
-                "balance": float(user_balance),
-                "market_data_summary": {
-                    "assets_analyzed": len(currency_pairs),
-                    "timeframe": timeframe,
-                    "market": market,
-                    "strategy": strategy_type,
-                    "min_payout": min_payout,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "data_source": "BinaryOptionsToolsV2"
-                }
+        print(f"   ⏱️ Итоговое рекомендуемое время: {optimal_timeframe} мин")
+        signal['expiry_minutes'] = optimal_timeframe # Обновляем в сигнале
+
+        print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
+        print(f"   Направление: {signal.get('signal_type', '?').upper()}")
+        print(f"   Уверенность: {best_candidate['confidence']:.1f}%")
+        print(f"   💰 Реальная цена: {realtime_price:.5f}")
+
+        # Обновляем цену в сигнале
+        signal['current_price'] = float(realtime_price)
+
+        # Форматируем и возвращаем
+        return {
+            "success": True,
+            "signal": format_signal_response(signal, user_balance),
+            "balance": float(user_balance),
+            "market_data_summary": {
+                "assets_analyzed": len(currency_pairs),
+                "timeframe": timeframe,
+                "market": market,
+                "strategy": strategy_type,
+                "min_payout": min_payout,
+                "timestamp": datetime.utcnow().isoformat(),
+                "data_source": "PocketOptionAsync"
             }
+        }
 
         except FastAPIHTTPException:
             raise
