@@ -333,22 +333,35 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Последовательный анализ {len(currency_pairs)} активов...")
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов...")
 
-            # Для КАЖДОГО актива: подписка → долгое ожидание → свечи
-            # Это ОБНОВЛЯЕТ кэш BinaryOptionsToolsV2 свежими данными
+            # Для каждого актива: получаем исторические свечи + реальную цену через стрим
             analyzed_signals = []
 
             for asset in currency_pairs:
                 try:
                     print(f"   📡 {asset['name']}...")
                     
-                    # 1. Подписываемся на актив — сервер начинает слать данные
+                    # 1. Получаем исторические свечи для анализа
+                    hist_candles = await bot_client.history(asset['id'], 60)
+                    
+                    if not hist_candles or len(hist_candles) < 20:
+                        print(f"   ⚠️ недостаточно исторических данных")
+                        continue
+                    
+                    # 2. Получаем РЕАЛЬНУЮ текущую цену через стрим (как в тесте)
+                    real_prices = []
                     try:
                         sub_task = asyncio.create_task(bot_client.subscribe_symbol(asset['id']))
-                        # Ждём 4 сек чтобы данные накопились в кэше
-                        await asyncio.sleep(4)
-                        # Отменяем подписку
+                        # Ждём 2 секунды чтобы получить несколько реальных цен
+                        async for candle in sub_task:
+                            price = candle.get('close', candle.get('price', 0))
+                            try:
+                                real_prices.append(float(price))
+                            except:
+                                pass
+                            if len(real_prices) >= 5:
+                                break
                         sub_task.cancel()
                         try:
                             await sub_task
@@ -357,21 +370,17 @@ async def get_signal(
                     except Exception:
                         pass
                     
-                    # 2. Даём кэшу обновиться
-                    await asyncio.sleep(1)
-                    
-                    # 3. Получаем свечи — кэш должен быть свежим
-                    candles_data = await bot_client.get_candles(asset['id'], 60, 100)
-                    
-                    if not candles_data or len(candles_data) < 20:
-                        print(f"   ⚠️ недостаточно данных ({len(candles_data) if candles_data else 0})")
-                        continue
+                    # Используем последнюю реальную цену
+                    if real_prices:
+                        realtime_price = real_prices[-1]
+                        print(f"   ✅ {asset['name']}: {len(hist_candles)} свечей | цена: {realtime_price:.5f} ({len(real_prices)} тиков)")
+                    else:
+                        realtime_price = hist_candles[-1].get('close', 0)
+                        print(f"   ⚠️ {asset['name']}: {len(hist_candles)} свечей | цена из истории: {realtime_price:.5f}")
 
-                    print(f"   ✅ {asset['name']}: {len(candles_data)} свечей")
-
-                    # Конвертируем в формат для анализа
+                    # Конвертируем исторические свечи в формат для анализа
                     history = []
-                    for c in candles_data:
+                    for c in hist_candles:
                         history.append({
                             'time': c.get('time', 0),
                             'open': float(c.get('open', 0)),
