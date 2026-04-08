@@ -15,7 +15,6 @@ from app.balance_utils import get_user_balance
 from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
-from pocketoptionapi_async.client import AsyncPocketOptionClient
 from app.po_strategies_advanced import advanced_signal_strategy
 
 settings = get_settings()
@@ -256,23 +255,14 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # pocketoptionapi_async — держит ОДНО соединение для всех запросов
-        # (как Mastaaa1987 API с чистыми websockets)
-        is_demo_mode = market.lower() == "demo"
+        # BinaryOptionsToolsV2 — используем TaskGroup для параллельных запросов (как Mastaaa1987)
+        from BinaryOptionsToolsV2 import PocketOptionAsync
         
         session_token = settings.POCKETOPTION_SESSION_TOKEN
-        uid = settings.POCKETOPTION_UID
-        ssid = f'42["auth",{{"session":"{session_token}","isDemo":0,"uid":{uid},"platform":1,"isFastHistory":true,"isOptimized":true}}]'
         
-        print(f"\n🔌 Подключение к PO (pocketoptionapi_async — одно соединение)...")
-        client = AsyncPocketOptionClient(ssid=ssid, is_demo=False, enable_logging=False)
-        connected = await client.connect()
-        
-        if not connected:
-            raise FastAPIHTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Не удалось подключиться к Pocket Option"
-            )
+        print(f"\n🔌 Подключение к PO (BinaryOptionsToolsV2)...")
+        client = PocketOptionAsync(ssid=session_token)
+        await client.connect()
         print("✅ Подключено!")
         
         try:
@@ -292,31 +282,39 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
             
-            assets = currency_pairs
+            # 🔍 Анализируем ВСЕ активы ПАРАЛЛЕЛЬНО (как Mastaaa1987)
+            print(f"\n🔍 Анализ {len(currency_pairs)} активов через BinaryOptionsToolsV2 TaskGroup...")
             
-            # 🔍 Анализируем ВСЕ активы через pocketoptionapi_async
-            print(f"\n🔍 Анализ {len(assets)} активов...")
+            # Запускаем ВСЕ запросы ПАРАЛЛЕЛЬНО через TaskGroup
+            history_tasks = {}
+            async with asyncio.TaskGroup() as tg:
+                for asset in currency_pairs:
+                    task = tg.create_task(client.history(asset['id'], 60))
+                    history_tasks[asset['id']] = {'task': task, 'asset': asset}
             
+            # Ждём немного чтобы все задачи завершились
+            await asyncio.sleep(5)
+            
+            # Собираем результаты
             analyzed_signals = []
-            
-            for asset in assets:
+            for asset_id, data in history_tasks.items():
+                asset = data['asset']
                 try:
-                    # get_candles() через pocketoptionapi_async работает через ОДНО соединение
-                    candles = await client.get_candles(asset['id'], timeframe=60, count=100)
+                    candles_data = data['task'].result()
                     
-                    if not candles or len(candles) < 20:
-                        print(f"   ⚠️ {asset['name']}: недостаточно данных")
+                    if not candles_data or len(candles_data) < 20:
+                        print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
                         continue
                     
-                    # Конвертируем в dict формат
+                    # Конвертируем в формат для анализа
                     history = []
-                    for c in candles:
+                    for c in candles_data:
                         history.append({
-                            'time': getattr(c, 'time', getattr(c, 'timestamp', 0)),
-                            'open': float(getattr(c, 'open', 0)),
-                            'high': float(getattr(c, 'high', 0)),
-                            'low': float(getattr(c, 'low', 0)),
-                            'close': float(getattr(c, 'close', 0)),
+                            'time': c.get('time', 0),
+                            'open': float(c.get('open', 0)),
+                            'high': float(c.get('high', 0)),
+                            'low': float(c.get('low', 0)),
+                            'close': float(c.get('close', 0)),
                         })
                     
                     # Генерируем сигнал
@@ -374,7 +372,6 @@ async def get_signal(
             print(f"❌ Ошибка: {e}")
             import traceback
             traceback.print_exc()
-            await client.disconnect()
             raise FastAPIHTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка при генерации сигнала: {str(e)}"
