@@ -372,10 +372,10 @@ async def get_signal(
                     
                     # Используем последнюю реальную цену
                     if real_prices:
-                        realtime_price = real_prices[-1]
+                        realtime_price = float(real_prices[-1])
                         print(f"   ✅ {asset['name']}: {len(hist_candles)} свечей | цена: {realtime_price:.5f} ({len(real_prices)} тиков)")
                     else:
-                        realtime_price = hist_candles[-1].get('close', 0)
+                        realtime_price = float(hist_candles[-1].get('close', 0))
                         print(f"   ⚠️ {asset['name']}: {len(hist_candles)} свечей | цена из истории: {realtime_price:.5f}")
 
                     # Конвертируем исторические свечи в формат для анализа
