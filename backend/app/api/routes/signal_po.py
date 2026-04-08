@@ -337,8 +337,11 @@ async def get_signal(
                     try:
                         # 1. Попробуем ML
                         ml_gen = get_ml()
-                        # generate_signal ожидает список словарей с ключами open, high, low, close, time
-                        ml_result = ml_gen.generate_signal(clean_candles, asset.get('name', 'Unknown'))
+                        # Сначала обучаем модель на текущей истории
+                        ml_gen.train(clean_candles)
+                        
+                        # Затем пытаемся получить предсказание
+                        ml_result = ml_gen.predict(clean_candles)
                         
                         # Если ML уверен более чем на 55% - используем его как основной источник
                         if ml_result and ml_result.get('confidence', 0) > 0.55:
@@ -598,7 +601,8 @@ def generate_demo_signal(strategy_type: str, min_payout: int) -> dict:
     if strategy_type.lower() in ['ml', 'neural_ai', 'neural']:
         try:
             ml_gen = get_ml()
-            ml_result = ml_gen.generate_signal(demo_candles, "AUD/CAD OTC Demo")
+            ml_gen.train(demo_candles)
+            ml_result = ml_gen.predict(demo_candles)
             if ml_result and ml_result.get('confidence', 0) > 0.55:
                 direction = ml_result.get('direction', 'call')
                 confidence_pct = ml_result.get('confidence', 0) * 100

@@ -177,7 +177,10 @@ def analyze_tradingview_signal(tv_data: list, strategy_type: str) -> Optional[di
     if strategy_type.lower() in ['ml', 'neural_ai', 'neural'] and candles and len(candles) >= 50:
         try:
             ml_gen = get_ml_generator()
-            ml_result = ml_gen.generate_signal(candles, best_pair.get('name', 'Unknown'))
+            # Обучаем модель на фейковых свечах
+            ml_gen.train(candles)
+            # Получаем предсказание
+            ml_result = ml_gen.predict(candles)
             
             if ml_result and ml_result.get('confidence', 0) > 0.55:
                 direction = ml_result.get('direction', 'call')
@@ -496,7 +499,9 @@ async def get_demo_signal(current_user: User, db: AsyncSession, timeframe: str, 
     if strategy_type.lower() in ['ml', 'neural_ai', 'neural']:
         try:
             ml_gen = get_ml_generator()
-            ml_result = ml_gen.generate_signal(demo_candles, "EUR/USD Demo")
+            # Обучаем и предсказываем
+            ml_gen.train(demo_candles)
+            ml_result = ml_gen.predict(demo_candles)
             if ml_result and ml_result.get('confidence', 0) > 0.55:
                 direction = ml_result.get('direction', 'call')
                 confidence_pct = ml_result.get('confidence', 0) * 100
