@@ -17,6 +17,12 @@ from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
 from pocketoptionapi_async.client import AsyncPocketOptionClient
 from app.po_strategies_advanced import advanced_signal_strategy
+from app.po_strategies_enhanced import (
+    calculate_stochastic,
+    calculate_cci,
+    detect_candlestick_pattern,
+    calculate_support_resistance
+)
 
 settings = get_settings()
 
@@ -320,8 +326,92 @@ async def get_signal(
                         signal = generate_signal_from_candles_simple(history, asset, strategy_type, 5)
                     
                     if signal:
-                        conf_str = signal.get('confidence', '50%')
-                        confidence = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+                        # === УЛУЧШЕННЫЙ АНАЛИЗ ===
+                        # Добавляем дополнительные индикаторы для большей точности
+                        
+                        stoch = calculate_stochastic(
+                            [c['close'] for c in history],
+                            [c['high'] for c in history],
+                            [c['low'] for c in history],
+                            14
+                        )
+                        
+                        cci = calculate_cci(
+                            [c['high'] for c in history],
+                            [c['low'] for c in history],
+                            [c['close'] for c in history],
+                            20
+                        )
+                        
+                        pattern = detect_candlestick_pattern(
+                            [c['open'] for c in history],
+                            [c['high'] for c in history],
+                            [c['low'] for c in history],
+                            [c['close'] for c in history]
+                        )
+                        
+                        support, resistance = calculate_support_resistance(
+                            [c['close'] for c in history], 20
+                        )
+                        
+                        # Корректируем уверенность на основе дополнительных индикаторов
+                        original_conf = float(signal.get('confidence', '50%').replace('%', ''))
+                        
+                        # Стохастик подтверждает?
+                        if signal['signal_type'] == 'call' and stoch < 30:
+                            original_conf += 5  # oversold + call = сильнее
+                        elif signal['signal_type'] == 'put' and stoch > 70:
+                            original_conf += 5  # overbought + put = сильнее
+                        elif signal['signal_type'] == 'call' and stoch > 70:
+                            original_conf -= 5  # overbought + call = слабее
+                        elif signal['signal_type'] == 'put' and stoch < 30:
+                            original_conf -= 5  # oversold + put = слабее
+                        
+                        # CCI подтверждает?
+                        if signal['signal_type'] == 'call' and cci < -100:
+                            original_conf += 5  # oversold
+                        elif signal['signal_type'] == 'put' and cci > 100:
+                            original_conf += 5  # overbought
+                        
+                        # Паттерн свечи?
+                        if pattern['type'] == signal['signal_type']:
+                            original_conf += pattern['strength'] * 10
+                        
+                        # Близость к поддержке/сопротивлению?
+                        current_price = history[-1]['close']
+                        dist_to_support = abs(current_price - support) / current_price if current_price > 0 else 1
+                        dist_to_resistance = abs(current_price - resistance) / current_price if current_price > 0 else 1
+                        
+                        if signal['signal_type'] == 'call' and dist_to_support < 0.002:
+                            original_conf += 5  # От поддержки = хороший вход
+                        elif signal['signal_type'] == 'put' and dist_to_resistance < 0.002:
+                            original_conf += 5  # От сопротивления = хороший вход
+                        
+                        # Ограничиваем 50-95%
+                        original_conf = max(50, min(95, original_conf))
+                        
+                        confidence = original_conf
+                        
+                        # Обновляем силу сигнала
+                        if confidence > 80:
+                            signal['strength'] = 'strong'
+                        elif confidence > 65:
+                            signal['strength'] = 'medium'
+                        else:
+                            signal['strength'] = 'weak'
+                        
+                        signal['confidence'] = f"{int(confidence)}%"
+                        
+                        # Добавляем дополнительные индикаторы в ответ
+                        signal['enhanced_indicators'] = {
+                            'stochastic_k': round(stoch, 2),
+                            'cci': round(cci, 2),
+                            'candle_pattern': pattern['name'],
+                            'support': round(support, 5),
+                            'resistance': round(resistance, 5),
+                            'dist_to_support_pct': f"{dist_to_support*100:.3f}%",
+                            'dist_to_resistance_pct': f"{dist_to_resistance*100:.3f}%"
+                        }
                         
                         analyzed_signals.append({
                             'asset': asset,
@@ -330,7 +420,7 @@ async def get_signal(
                             'confidence': confidence
                         })
                         
-                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%)")
+                        print(f"   📊 {asset['name']}: {signal.get('signal_type', '?').upper()} ({confidence:.1f}%) [stoch:{stoch:.1f} cci:{cci:.1f}]")
                     
                 except Exception as e:
                     print(f"   ❌ {asset['name']}: {e}")
