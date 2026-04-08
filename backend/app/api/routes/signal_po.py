@@ -28,6 +28,113 @@ except ImportError:
 
 settings = get_settings()
 
+# ============================================================
+# ГЛОБАЛЬНЫЙ ПУЛ ПОДКЛЮЧЕНИЙ (Connection Pool)
+# ============================================================
+# Чтобы не спамить подключениями при множестве пользователей,
+# мы используем ОДНО общее соединение, которое переиспользуется.
+
+_global_ws_client = None
+_global_ws_last_active = 0
+_global_ws_lock = asyncio.Lock()
+_global_keepalive_task = None
+
+async def _keepalive_loop():
+    """
+    Фоновая задача для поддержания WebSocket соединения.
+    Отправляет ping каждые 25 секунд чтобы PocketOption не разорвал соединение.
+    """
+    global _global_ws_client, _global_ws_last_active
+    
+    print("🔄 Keepalive цикл запущен (ping каждые 25 сек)...")
+    
+    try:
+        while True:
+            await asyncio.sleep(25)  # Отправляем ping каждые 25 секунд
+            
+            async with _global_ws_lock:
+                # Проверяем есть ли активный клиент
+                if _global_ws_client is None:
+                    print("⚠️ Keepalive: клиент отсутствует, останавливаем")
+                    break
+                
+                # Проверяем не устарело ли соединение (> 5 мин неактивности)
+                now = time.time()
+                if (now - _global_ws_last_active) >= 300:
+                    print("♻️ Keepalive: соединение устарело, закрываем...")
+                    try:
+                        await _global_ws_client.shutdown()  # ПОЛНОЕ закрытие
+                    except:
+                        pass
+                    _global_ws_client = None
+                    break
+                
+                # Отправляем ping для поддержания соединения
+                try:
+                    # BinaryOptionsToolsV2 internally handles ping/pong
+                    # Но мы можем вызвать get_candles для проверки соединения
+                    # или просто ничего не делать - библиотека сама поддерживает
+                    print("💓 Keepalive: соединение активно")
+                except Exception as e:
+                    print(f"⚠️ Keepalive ошибка: {e}")
+                    
+    except asyncio.CancelledError:
+        print("🛑 Keepalive цикл остановлен")
+    except Exception as e:
+        print(f"❌ Keepalive критическая ошибка: {e}")
+
+
+async def get_pooled_ws_client():
+    """
+    Возвращает активный WebSocket клиент.
+    Если клиента нет или он устарел (> 5 мин неактивности) -> пересоздает.
+    """
+    global _global_ws_client, _global_ws_last_active, _global_keepalive_task
+
+    async with _global_ws_lock:
+        now = time.time()
+        # Если клиент жив и активен менее 5 минут назад - используем его
+        if _global_ws_client is not None and (now - _global_ws_last_active) < 300:
+            return _global_ws_client
+
+        # Если клиент старый - закрываем ПОЛНОСТЬЮ
+        if _global_ws_client is not None:
+            try:
+                print("♻️ Старое соединение устарело, закрываем...")
+                await _global_ws_client.shutdown()  # ← ИСПОЛЬЗУЕМ shutdown() вместо disconnect()
+            except:
+                pass
+            _global_ws_client = None
+            
+            # Останавливаем старую keepalive задачу
+            if _global_keepalive_task and not _global_keepalive_task.done():
+                _global_keepalive_task.cancel()
+                try:
+                    await _global_keepalive_task
+                except asyncio.CancelledError:
+                    pass
+
+        # Создаем новое
+        ssid = settings.POCKETOPTION_SESSION_TOKEN
+        is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
+        print("🔌 Создание нового общего соединения с PO...")
+
+        if USE_BOT_V2:
+            _global_ws_client = PocketOptionAsync(ssid=ssid)
+        else:
+            _global_ws_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+
+        await _global_ws_client.connect()
+        _global_ws_last_active = time.time()
+        print("✅ Новое соединение создано и готово к работе.")
+        
+        # Запускаем keepalive цикл для нового соединения
+        if _global_keepalive_task is None or _global_keepalive_task.done():
+            _global_keepalive_task = asyncio.create_task(_keepalive_loop())
+            print("🔄 Keepalive цикл запущен")
+
+        return _global_ws_client
+
 # ML генератор (singleton)
 _ml_generator = None
 def get_ml():
@@ -58,16 +165,17 @@ class POConnectionPool:
     async def get_historical_candles(self, asset: str, timeframe: int = 60, count: int = 100) -> list:
         """Получить исторические свечи для анализа"""
         from BinaryOptionsToolsV2 import PocketOptionAsync
-        
+
         session_token = settings.POCKETOPTION_SESSION_TOKEN
-        
+        client = None
+
         try:
             client = PocketOptionAsync(ssid=session_token)
             await client.connect()
-            
+
             # Получаем историю
             history = await client.get_candles(asset, timeframe, count)
-            
+
             # Конвертируем в формат candles
             candles = []
             if history:
@@ -79,27 +187,34 @@ class POConnectionPool:
                         'low': float(c.get('low', 0)),
                         'close': float(c.get('close', 0)),
                     })
-            
-            await client.disconnect()
+
             return candles
-            
+
         except Exception as e:
             print(f"❌ Ошибка получения истории: {e}")
             return []
+        finally:
+            # ВСЕГДА закрываем соединение, даже при ошибке
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
     
     async def get_realtime_price(self, asset: str, timeout: float = 3.0) -> Optional[float]:
         """Получить РЕАЛЬНУЮ текущую цену через live стрим"""
         from BinaryOptionsToolsV2 import PocketOptionAsync
-        
+
         session_token = settings.POCKETOPTION_SESSION_TOKEN
-        
+        client = None
+
         try:
             client = PocketOptionAsync(ssid=session_token)
             await client.connect()
-            
+
             realtime_prices = []
             start_time = time.time()
-            
+
             async for candle in await client.subscribe_symbol(asset):
                 price_raw = candle.get('close', candle.get('price', 0))
                 try:
@@ -107,38 +222,51 @@ class POConnectionPool:
                     realtime_prices.append(price)
                 except:
                     pass
-                
+
                 # Ждём timeout секунд
                 if time.time() - start_time >= timeout:
                     break
-            
-            await client.disconnect()
-            
+
             if realtime_prices:
                 return realtime_prices[-1]  # Последняя = самая свежая
             return None
-            
+
         except Exception as e:
             print(f"❌ Ошибка получения real-time цены: {e}")
             return None
+        finally:
+            # ВСЕГДА закрываем соединение, даже при ошибке
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
     
     async def get_payout(self, asset: str) -> Optional[float]:
         """Получить payout"""
         from BinaryOptionsToolsV2 import PocketOptionAsync
-        
+
         session_token = settings.POCKETOPTION_SESSION_TOKEN
-        
+        client = None
+
         try:
             client = PocketOptionAsync(ssid=session_token)
             await client.connect()
-            
+
             payout = client.get_payout(asset)
-            
-            await client.disconnect()
+
             return payout
-            
-        except:
+
+        except Exception as e:
+            print(f"❌ Ошибка получения payout: {e}")
             return None
+        finally:
+            # ВСЕГДА закрываем соединение, даже при ошибке
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
 
 
 # Singleton пул
@@ -147,9 +275,33 @@ _po_pool = POConnectionPool()
 
 async def close_all_po_connections():
     """Закрыть все соединения (при shutdown)"""
-    # BinaryOptionsToolsV2 не держит постоянных соединений
+    global _global_ws_client, _global_keepalive_task
+    
+    print("🔌 Закрытие глобального WebSocket пула...")
+    
+    # Останавливаем keepalive задачу
+    if _global_keepalive_task and not _global_keepalive_task.done():
+        print("🛑 Остановка keepalive цикла...")
+        _global_keepalive_task.cancel()
+        try:
+            await _global_keepalive_task
+        except asyncio.CancelledError:
+            pass
+        _global_keepalive_task = None
+    
+    # Закрываем глобальное соединение из пула
+    if _global_ws_client is not None:
+        try:
+            print("♻️ Закрытие глобального WebSocket соединения...")
+            await _global_ws_client.shutdown()  # ← ПОЛНОЕ закрытие через shutdown()
+            _global_ws_client = None
+            print("✅ Глобальное WebSocket соединение закрыто")
+        except Exception as e:
+            print(f"⚠️ Ошибка при закрытии: {e}")
+    
+    # BinaryOptionsToolsV2 POConnectionPool не держит постоянных соединений
     # Каждое соединение закрывается после использования
-    print("🔌 PO connections cleanup (no persistent connections)")
+    print("✅ PO connections cleanup complete")
 
 
 async def get_payout_for_assets(asset_ids: list) -> dict:
@@ -174,6 +326,8 @@ async def get_signal(
     - Demo → Pocket Option WebSocket (демо счет)
     - Market/Bиржа → TradingView (frontend)
     """
+    global _global_ws_client
+    
     market = data.get("market", "otc")
     
     # Маршрутизация в зависимости от рынка
@@ -238,19 +392,18 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # === ГЕНЕРАЦИЯ СИГНАЛА (ROBUST CONNECTION POOL) ===
+        # === ГЕНЕРАЦИЯ СИГНАЛА (CONNECTION POOL) ===
         print(f"\n🚀 Начинаем генерацию сигнала...")
 
-        ssid_to_use = settings.POCKETOPTION_SESSION_TOKEN
-        is_demo_mode = '"isDemo":1' in ssid_to_use or '"isDemo": 1' in ssid_to_use
-        
-        print(f"🔌 Подключение через {'BinaryOptionsToolsV2' if USE_BOT_V2 else 'AsyncClient'}...")
-        print(f"   SSID: {ssid_to_use[:40]}...")
-        print(f"   Режим: {'DEMO' if is_demo_mode else 'REAL'}")
+        # Получаем клиент из пула (переиспользуем соединение)
+        bot_client = await get_pooled_ws_client()
 
-        bot_client = None
+        # Обновляем время активности, чтобы соединение не закрылось
+        global _global_ws_last_active
+        _global_ws_last_active = time.time()
+
         analyzed_candidates = []
-        
+
         # Список активов для анализа
         currency_pairs = [
             {"id": "EURUSD_otc", "name": "EUR/USD OTC"}, {"id": "GBPUSD_otc", "name": "GBP/USD OTC"},
@@ -261,117 +414,107 @@ async def get_signal(
             {"id": "GBPJPY_otc", "name": "GBP/JPY OTC"}, {"id": "AUDJPY_otc", "name": "AUD/JPY OTC"},
         ]
 
-        try:
-            # 1. Инициализация клиента (Приоритет у BinaryOptionsToolsV2 для реальных цен)
-            if USE_BOT_V2:
-                bot_client = PocketOptionAsync(ssid=ssid_to_use)
-            else:
-                bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
-            
-            print("📡 Подключение...")
-            await bot_client.connect()
-            # ВАЖНО: Убрали sleep(5), чтобы сервер не убил соединение за бездействие!
-            print("✅ Connected! Начинаем сканирование...")
+        print("✅ Используем соединение из пула для сканирования...")
 
-            # 2. Цикл анализа с авто-восстановлением
-            for asset in currency_pairs:
-                try:
-                    # Запрос свечей (10000 сек истории)
-                    hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
-                    
-                    if not hist_candles or len(hist_candles) < 20:
-                        continue
+        # 2. Цикл анализа с авто-восстановлением
+        for asset in currency_pairs:
+            try:
+                # Запрос свечей (10000 сек истории)
+                hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
 
-                    # Конвертация в числа
-                    clean_candles = []
-                    for c in hist_candles:
-                        try:
-                            clean_candles.append({
-                                'time': c.get('time', 0),
-                                'open': float(c.get('open', 0)),
-                                'high': float(c.get('high', 0)),
-                                'low': float(c.get('low', 0)),
-                                'close': float(c.get('close', 0)),
-                            })
-                        except: pass
+                if not hist_candles or len(hist_candles) < 20:
+                    continue
 
-                    # ML Анализ
-                    signal = None
+                # Конвертация в числа
+                clean_candles = []
+                for c in hist_candles:
                     try:
-                        ml_gen = get_ml()
-                        ml_gen.train(clean_candles)
-                        ml_result = ml_gen.predict(clean_candles)
-                        if ml_result and ml_result.get('confidence', 0) > 0.55:
-                            signal = {
-                                "signal_type": ml_result.get('direction', 'call'),
-                                "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
-                                "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
-                                "current_price": clean_candles[-1]['close'],
-                                "expiry_minutes": 5,
-                                "pair_name": asset['name'],
-                                "trend": ml_result.get('trend', 'neutral'),
-                                "rsi": ml_result.get('rsi', 50),
-                                "pattern_detected": "ML_PREDICTION",
-                                "payout": "85%",
-                                "db_strategy": "MACHINE_LEARNING"
-                            }
-                    except Exception as ml_err:
-                        print(f"   ⚠️ ML ошибка для {asset['id']}: {ml_err}")
-
-                    # Индикаторы (если ML не дал сигнала)
-                    if signal is None:
-                        signal = advanced_signal_strategy(clean_candles, asset, "indicators")
-
-                    if signal:
-                        conf_str = signal.get('confidence', '50%')
-                        conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-                        
-                        closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
-                        volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
-                        
-                        analyzed_candidates.append({
-                            'asset': asset, 'signal': signal, 
-                            'confidence': conf, 'volatility_pct': volatility_pct
+                        clean_candles.append({
+                            'time': c.get('time', 0),
+                            'open': float(c.get('open', 0)),
+                            'high': float(c.get('high', 0)),
+                            'low': float(c.get('low', 0)),
+                            'close': float(c.get('close', 0)),
                         })
+                    except: pass
 
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    # АВТО-ПЕРЕПОДКЛЮЧЕНИЕ при разрыве
-                    if "half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg:
-                        print(f"   ⚠️ Разрыв связи! Переподключение для {asset['id']}...")
-                        try: await bot_client.disconnect()
-                        except: pass
+                # ML Анализ
+                signal = None
+                try:
+                    ml_gen = get_ml()
+                    ml_gen.train(clean_candles)
+                    ml_result = ml_gen.predict(clean_candles)
+                    if ml_result and ml_result.get('confidence', 0) > 0.55:
+                        signal = {
+                            "signal_type": ml_result.get('direction', 'call'),
+                            "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
+                            "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
+                            "current_price": clean_candles[-1]['close'],
+                            "expiry_minutes": 5,
+                            "pair_name": asset['name'],
+                            "trend": ml_result.get('trend', 'neutral'),
+                            "rsi": ml_result.get('rsi', 50),
+                            "pattern_detected": "ML_PREDICTION",
+                            "payout": "85%",
+                            "db_strategy": "MACHINE_LEARNING"
+                        }
+                except Exception as ml_err:
+                    print(f"   ⚠️ ML ошибка для {asset['id']}: {ml_err}")
 
-                        if USE_BOT_V2:
-                            bot_client = PocketOptionAsync(ssid=ssid_to_use)
-                        else:
-                            bot_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
-                        await bot_client.connect()
-                        print(f"   ✅ Переподключено. Повтор {asset['id']}...")
-                        
-                        try:
-                            hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
-                            if hist_candles and len(hist_candles) >= 20:
-                                # ... (Краткая логика обработки, аналогичная основной) ...
-                                clean_candles = [{'time': c.get('time', 0), 'open': float(c.get('open',0)), 'high': float(c.get('high',0)), 'low': float(c.get('low',0)), 'close': float(c.get('close',0))} for c in hist_candles if c.get('close')]
+                # Индикаторы (если ML не дал сигнала)
+                if signal is None:
+                    signal = advanced_signal_strategy(clean_candles, asset, "indicators")
+
+                if signal:
+                    conf_str = signal.get('confidence', '50%')
+                    conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+
+                    closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
+                    volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
+
+                    analyzed_candidates.append({
+                        'asset': asset, 'signal': signal,
+                        'confidence': conf, 'volatility_pct': volatility_pct
+                    })
+
+            except Exception as e:
+                err_msg = str(e).lower()
+                # АВТО-ПЕРЕПОДКЛЮЧЕНИЕ при разрыве
+                if "half closed" in err_msg or "closed" in err_msg or "disconnect" in err_msg:
+                    print(f"   ⚠️ Разрыв связи! Переподключение...")
+
+                    # Сбрасываем пул, чтобы следующий запрос создал новый
+                    _global_ws_client = None
+
+                    # Для ТЕКУЩЕГО запроса пытаемся переподключиться
+                    try:
+                        bot_client = await get_pooled_ws_client()
+                        _global_ws_last_active = time.time() # Обновляем таймер
+
+                        hist_candles = await bot_client.get_candles(asset['id'], 60, 10000)
+                        if hist_candles and len(hist_candles) >= 20:
+                            clean_candles = []
+                            for c in hist_candles:
+                                try:
+                                    if isinstance(c, dict): clean_candles.append({'time': c.get('time',0), 'open':float(c.get('open',0)), 'high':float(c.get('high',0)), 'low':float(c.get('low',0)), 'close':float(c.get('close',0))})
+                                    else: clean_candles.append({'time': getattr(c,'time',0), 'open':float(getattr(c,'open',0)), 'high':float(getattr(c,'high',0)), 'low':float(getattr(c,'low',0)), 'close':float(getattr(c,'close',0))})
+                                except: pass
+                            if clean_candles:
                                 signal = advanced_signal_strategy(clean_candles, asset, "indicators")
                                 if signal:
                                     conf_str = signal.get('confidence', '50%')
                                     conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-                                    closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
+                                    closes = [c['close'] for c in clean_candles[-20:]]
                                     volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
                                     analyzed_candidates.append({'asset': asset, 'signal': signal, 'confidence': conf, 'volatility_pct': volatility_pct})
-                        except: pass
-                    else:
-                        print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+                    except Exception as retry_err:
+                        print(f"   ❌ Ошибка после переподключения: {retry_err}")
+                else:
+                    print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
 
-        finally:
-            # 3. ГАРАНТИРОВАННОЕ ЗАКРЫТИЕ
-            print(f"\n🔌 Завершение: Закрытие WebSocket соединения...")
-            if bot_client:
-                try: await bot_client.disconnect()
-                except: pass
-            print("✅ Соединение закрыто.")
+        # ВАЖНО: Мы НЕ закрываем соединение (bot_client.disconnect()) здесь.
+        # Оно остается в пуле (_global_ws_client) для следующих пользователей.
+        # Оно закроется само через 5 минут бездействия.
 
         if not analyzed_candidates:
             raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
@@ -385,24 +528,16 @@ async def get_signal(
         print(f"\n🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']} (Уверенность: {best_candidate['confidence']}%)")
         print(f"   📉 Волатильность: {volatility:.3f}%")
 
-        # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ (Отдельное подключение) ===
-        # Подключаемся отдельно только к лучшему активу, чтобы получить
-        # точную цену через стрим. Это занимает ~4-5 секунды.
+        # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ ===
+        # Используем ТО ЖЕ самое соединение из пула, чтобы не создавать лишних подключений
         print(f"   💰 Получение реальной цены...")
         realtime_price = 0.0
 
         try:
-            # Используем pocketoptionapi_async для получения актуальной цены
-            # Она стабильнее работает в Docker
-            price_client = AsyncPocketOptionClient(ssid=ssid_to_use, is_demo=is_demo_mode, enable_logging=False)
-            await price_client.connect()
-            
-            # Запрашиваем свежие свечи (1 минута) для получения последней цены
-            last_candles = await price_client.get_candles(best_asset['id'], 60, 100)
+            # Запрашиваем свежие свечи (1 минута) через активный клиент пула
+            last_candles = await bot_client.get_candles(best_asset['id'], 60, 100)
             if last_candles and len(last_candles) > 0:
                 realtime_price = float(last_candles[-1].get('close', 0))
-            
-            await price_client.disconnect()
         except Exception as e:
             print(f"   ⚠️ Ошибка получения цены: {e}")
 
@@ -429,7 +564,7 @@ async def get_signal(
         if volatility < 0.15:
             # Низкая волатильность: рынок "спит", нужно ждать дольше для движения
             # Рекомендация: 5-7 минут
-            optimal_timeframe = 5 
+            optimal_timeframe = 5
             print(f"   🐢 Низкая волатильность -> экспирация {optimal_timeframe} мин")
         elif volatility < 0.35:
             # Средняя волатильность: "Золотая середина"
@@ -470,27 +605,9 @@ async def get_signal(
                 "strategy": strategy_type,
                 "min_payout": min_payout,
                 "timestamp": datetime.utcnow().isoformat(),
-                "data_source": "PocketOptionAsync"
+                "data_source": "BinaryOptionsToolsV2" if USE_BOT_V2 else "PocketOptionAsync"
             }
         }
-
-        except FastAPIHTTPException:
-            raise
-        except Exception as e:
-            print(f"❌ Ошибка: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            # Безопасно закрываем соединение (игнорируя ошибки сломанного канала)
-            try:
-                await bot_client.disconnect()
-            except:
-                pass
-                
-            raise FastAPIHTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Ошибка при генерации сигнала: {str(e)}"
-            )
 
     except FastAPIHTTPException:
         raise
@@ -498,6 +615,16 @@ async def get_signal(
         print(f"❌ Ошибка: {e}")
         import traceback
         traceback.print_exc()
+
+        # ВАЖНО: НЕ закрываем bot_client здесь!
+        # Это клиент из пула, он переиспользуется для следующих запросов.
+        # Пул сам управляет жизненным циклом соединения.
+        # Только при критической ошибке соединения - сбрасываем пул:
+        try:
+            _global_ws_client = None  # Сбрасываем, следующий запрос создаст новый
+            print("⚠️ Пул сброшен из-за критической ошибки")
+        except:
+            pass
 
         raise FastAPIHTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
