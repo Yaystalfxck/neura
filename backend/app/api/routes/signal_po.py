@@ -593,6 +593,24 @@ async def get_signal(
         # Обновляем цену в сигнале
         signal['current_price'] = float(realtime_price)
 
+        # === СОХРАНЯЕМ ИСПОЛЬЗОВАНИЕ СИГНАЛА В БД ===
+        try:
+            signal_usage = SignalUsage(
+                user_id=current_user.id,
+                signal_data=json.dumps(signal),
+                used_at=datetime.utcnow()
+            )
+            db.add(signal_usage)
+            await db.commit()
+            print(f"✅ Использование сигнала сохранено в БД (user_id={current_user.id})")
+        except Exception as db_err:
+            print(f"⚠️ Ошибка сохранения в БД: {db_err}")
+            # НЕ блокируем возврат сигнала из-за ошибки БД
+            try:
+                await db.rollback()
+            except:
+                pass
+
         # Форматируем и возвращаем
         return {
             "success": True,
