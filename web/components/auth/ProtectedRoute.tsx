@@ -99,13 +99,18 @@ export default function ProtectedRoute({ children, adminOnly = false }: Protecte
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="relative">
-            <div className="w-24 h-24 border-4 border-blue-500/30 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-24 h-24 border-4 border-transparent border-t-blue-500 rounded-full animate-spin"></div>
-            <Loader2 className="w-12 h-12 text-blue-400 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+          {/* Единый спиннер загрузки */}
+          <div className="relative flex justify-center items-center mb-6">
+            <div className="w-16 h-16 border-4 border-blue-500/30 rounded-full"></div>
+            <div className="absolute w-16 h-16 border-4 border-transparent border-t-blue-500 rounded-full animate-spin"></div>
           </div>
-          <h2 className="text-2xl font-bold mt-8 mb-2">{language === 'en' ? 'Checking authorization...' : 'Проверка авторизации...'}</h2>
-          <p className="text-gray-400">{language === 'en' ? 'Please wait, checking access' : 'Подождите, идет проверка доступа'}</p>
+          
+          <h2 className="text-2xl font-bold mb-2">
+            {language === 'en' ? 'Checking authorization...' : 'Проверка авторизации...'}
+          </h2>
+          <p className="text-gray-400">
+            {language === 'en' ? 'Please wait, checking access' : 'Подождите, идет проверка доступа'}
+          </p>
         </div>
       </div>
     )
