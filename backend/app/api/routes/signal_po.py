@@ -215,7 +215,7 @@ async def get_signal(
 
             today = dt_module.utcnow().date()
 
-            # Получаем использование сигналов сегодня (PostgreSQL совместимо)
+            # Получаем использование сигналов сегодня
             result = await db.execute(
                 sa_select(func.count(SignalUsage.id))
                 .where(SignalUsage.user_id == current_user.id)
@@ -224,25 +224,10 @@ async def get_signal(
             used_today = result.scalar() or 0
             print(f"   Использовано сегодня: {used_today}")
 
-            # Получаем баланс
+            # Получаем баланс из БД (без WebSocket подключений)
             print("💰 Получение баланса...")
-            if current_user.email == "flaun.feed@mail.ru":
-                print(f"🎯 Получение баланса с демо-счёта для {current_user.email}")
-                po_balance = 1000.0
-                user_balance = po_balance
-                print(f"💰 Демо баланс (будет обновлён): ${po_balance}")
-            else:
-                po_result = await db.execute(
-                    sa_select(PocketOptionUser.current_balance)
-                    .where(PocketOptionUser.pocket_option_id == current_user.pocket_option_id)
-                )
-                po_row = po_result.scalar_one_or_none()
-                if po_row:
-                    user_balance = float(po_row)
-                    current_user.balance = user_balance
-                else:
-                    user_balance = float(current_user.balance) if current_user.balance else 0.0
-                print(f"💰 Баланс из БД: ${user_balance}")
+            user_balance = float(current_user.balance) if current_user.balance else 0.0
+            print(f"💰 Баланс: ${user_balance}")
 
             # Проверка для админов - безлимитно
             daily_limit = 999  # Для админов
@@ -261,8 +246,7 @@ async def get_signal(
                 if used_today >= daily_limit:
                     raise FastAPIHTTPException(
                         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня. "
-                               f"Для получения {daily_limit + 1} сигналов необходим баланс от ${get_next_limit_balance(user_balance)}."
+                        detail=f"Лимит сигналов исчерпан. Вы использовали {used_today} из {daily_limit} сигналов сегодня."
                     )
         except FastAPIHTTPException:
             raise
@@ -348,34 +332,19 @@ async def get_signal(
                 {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 88},
             ]
 
-            print(f"\n🔍 Анализ {len(currency_pairs)} активов через TaskGroup...")
+            print(f"\n🔍 Последовательный анализ {len(currency_pairs)} активов...")
 
-            # Mastaaa1987 pattern: TaskGroup для ПАРАЛЛЕЛЬНОГО получения данных
-            # ВАЖНО: используем get_candles() вместо history() — как в test_po_websocket_realtime.py
-            history_tasks = {}
-            async with asyncio.TaskGroup() as tg:
-                for asset in currency_pairs:
-                    try:
-                        task = tg.create_task(bot_client.get_candles(asset['id'], 60, 100))
-                        history_tasks[asset['id']] = {'task': task, 'asset': asset}
-                    except Exception as e:
-                        print(f"   ⚠️ {asset['name']}: ошибка создания задачи - {e}")
-
-            # Ждём чтобы все задачи завершились (увеличено до 15 сек)
-            print("⏳ Ожидание данных от активов...")
-            await asyncio.sleep(15)
-
-            # Собираем результаты
-            print("📊 Сбор результатов...")
+            # Получаем данные ПОСЛЕДОВАТЕЛЬНО — это надёжнее чем TaskGroup
             analyzed_signals = []
 
-            for asset_id, data in history_tasks.items():
-                asset = data['asset']
+            for asset in currency_pairs:
                 try:
-                    candles_data = data['task'].result()
+                    print(f"   📡 {asset['name']}...")
+                    # Используем get_candles() — тот же метод что в тесте
+                    candles_data = await bot_client.get_candles(asset['id'], 60, 100)
 
                     if not candles_data or len(candles_data) < 20:
-                        print(f"   ⚠️ {asset['name']}: недостаточно данных ({len(candles_data) if candles_data else 0})")
+                        print(f"   ⚠️ недостаточно данных")
                         continue
 
                     # Конвертируем в формат для анализа
