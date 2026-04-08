@@ -334,16 +334,18 @@ async def get_signal(
 
             print(f"\n🔍 Анализ {len(currency_pairs)} активов (последовательно)...")
 
-            # Получаем данные ПОСЛЕДОВАТЕЛЬНО через get_candles()
-            # Как в test_po_websocket_realtime.py и Mastaaa1987
+            # Получаем данные ПОСЛЕДОВАТЕЛЬНО через get_candles_advanced()
+            # Передаём текущее время чтобы НЕ получать кэшированные данные!
+            import time
             analyzed_signals = []
 
             for asset in currency_pairs:
                 try:
                     print(f"   📡 {asset['name']}...")
-                    # get_candles(asset, timeframe, offset/period)
-                    # Mastaaa1987 uses 9000 for offset to get enough history
-                    candles_data = await bot_client.get_candles(asset['id'], 60, 9000)
+                    # get_candles_advanced(asset, period, offset, current_time)
+                    # Передаём текущее время → сервер возвращает СВЕЖИЕ данные
+                    current_ts = int(time.time())
+                    candles_data = await bot_client.get_candles_advanced(asset['id'], 60, 9000, current_ts)
 
                     if not candles_data or len(candles_data) < 20:
                         print(f"   ⚠️ недостаточно данных")
