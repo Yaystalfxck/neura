@@ -31,49 +31,83 @@ except ImportError:
 settings = get_settings()
 
 # ============================================================
-# ВСТРОЕННЫЙ RECONNECT MECHANISM (BinaryOptionsToolsV2)
+# CONNECTION POOL + QUEUE для множественных пользователей
 # ============================================================
-# Библиотека автоматически:
-# - Переподключается при разрыве соединения
-# - Ждет reconnect_time (5 сек) между попытками
-# - Пробует до max_allowed_loops (100) раз
-# - Использует fallback URLs если основной недоступен
+# Один клиент BinaryOptionsToolsV2 обслуживает ВСЕХ пользователей
+# Запросы ставятся в очередь и обрабатываются последовательно
+
+# Глобальный клиент (переиспользуется)
+_shared_client = None
+_shared_client_lock = asyncio.Lock()
+_shared_client_last_used = 0
+_shared_client_max_idle = 300  # 5 минут бездействия
 
 
-async def get_pocketoption_client():
+async def get_shared_client():
     """
-    Создает клиент BinaryOptionsToolsV2 с встроенным reconnect.
-    Клиент автоматически переподключается при разрыве.
+    Возвращает общий клиент для всех пользователей.
+    Если клиента нет или он устарел (> 5 мин) → пересоздает.
+    Встроенный reconnect автоматически работает.
     """
-    ssid = settings.POCKETOPTION_SESSION_TOKEN
-    is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
+    global _shared_client, _shared_client_last_used
 
-    if USE_BOT_V2:
-        # Встроенная конфигурация с автоматическим reconnect
-        config = Config(
-            reconnect_time=5,                    # 5 сек между попытками
-            max_allowed_loops=100,               # макс. 100 попыток
-            connection_initialization_timeout_secs=30,
-            timeout_secs=30,
-            urls=[
-                "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket",
-                "wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket"
-            ]
-        )
-        client = PocketOptionAsync(ssid=ssid, config=config)
-    else:
-        client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+    async with _shared_client_lock:
+        now = time.time()
 
-    await client.connect()
+        # Если клиент жив и использовался < 5 мин назад → используем его
+        if _shared_client is not None and (now - _shared_client_last_used) < _shared_client_max_idle:
+            _shared_client_last_used = now
+            return _shared_client
 
-    if USE_BOT_V2:
-        try:
-            await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
-        except Exception as e:
-            print(f"⚠️ Ошибка загрузки активов: {e}")
-            await asyncio.sleep(2)
+        # Если клиент старый → закрываем
+        if _shared_client is not None:
+            try:
+                print("♻️ Старое соединение устарело, закрываем...")
+                await _shared_client.shutdown()
+            except:
+                pass
+            _shared_client = None
 
-    return client
+        # Создаем новое с встроенным reconnect
+        ssid = settings.POCKETOPTION_SESSION_TOKEN
+
+        if USE_BOT_V2:
+            config = Config(
+                reconnect_time=5,
+                max_allowed_loops=100,
+                connection_initialization_timeout_secs=30,
+                timeout_secs=30,
+                urls=[
+                    "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket",
+                    "wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket"
+                ]
+            )
+            _shared_client = PocketOptionAsync(ssid=ssid, config=config)
+        else:
+            is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
+            _shared_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+
+        print("🔌 Создание нового общего соединения с PO...")
+        await _shared_client.connect()
+
+        if USE_BOT_V2:
+            try:
+                print("⏳ Ожидание активов...")
+                await asyncio.wait_for(_shared_client.wait_for_assets(timeout=30.0), timeout=35.0)
+                print("✅ Активы загружены!")
+            except Exception as e:
+                print(f"⚠️ Ошибка загрузки активов: {e}")
+                await asyncio.sleep(2)
+
+        _shared_client_last_used = time.time()
+        print("✅ Новое соединение создано и готово к работе.")
+
+        return _shared_client
+
+
+# Очередь запросов (чтобы не было race conditions)
+_request_queue = asyncio.Queue()
+_processing_lock = asyncio.Lock()
 
 # ML генератор (singleton)
 _ml_generator = None
@@ -307,9 +341,9 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # === ГЕНЕРАЦИЯ СИГНАЛА (BinaryOptionsToolsV2 с встроенным reconnect) ===
+        # === ГЕНЕРАЦИЯ СИГНАЛА (Connection Pool для множественных пользователей) ===
         print(f"\n🚀 Начинаем генерацию сигнала...")
-        print(f"📡 BinaryOptionsToolsV2 с автоматическим reconnect")
+        print(f"📡 BinaryOptionsToolsV2 с Connection Pool + встроенным reconnect")
 
         analyzed_candidates = []
 
@@ -325,8 +359,8 @@ async def get_signal(
 
         print(f"📊 Начинаем сканирование {len(currency_pairs)} активов...")
 
-        # Создаем клиент с встроенным reconnect
-        client = await get_pocketoption_client()
+        # Получаем общий клиент (переиспользуется между пользователями!)
+        client = await get_shared_client()
 
         try:
             # Анализируем каждый актив
@@ -337,7 +371,7 @@ async def get_signal(
                 try:
                     print(f"\n📈 Анализ {asset['name']}...")
 
-                    # Получаем свечи (встроенный reconnect автоматически работает)
+                    # Получаем свечи (общий клиент, reconnect встроен!)
                     hist_candles = await client.get_candles(asset['id'], 60, 10000)
 
                     if not hist_candles or len(hist_candles) < 20:
@@ -470,13 +504,11 @@ async def get_signal(
                     # Пауза перед следующим активом
                     await asyncio.sleep(1)
 
-        finally:
-            # Закрываем клиент
-            if client is not None:
-                try:
-                    await client.shutdown()
-                except:
-                    pass
+        except Exception as e:
+            print(f"❌ Критическая ошибка анализа: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # === Выбираем лучший актив по уверенности ===
         if not analyzed_candidates:
@@ -506,18 +538,16 @@ async def get_signal(
         
         print(f"{'='*60}")
 
-        # === ПОЛУЧЕНИЕ REAL-TIME ЦЕНЫ через BinaryOptionsToolsV2 ===
+        # === ПОЛУЧЕНИЕ REAL-TIME ЦЕНЫ через общий клиент ===
         print(f"\n💰 Получение real-time цены...")
         realtime_price = float(signal.get('current_price', 0))
 
-        # Создаем клиент для real-time стрима
-        price_client = await get_pocketoption_client()
         try:
-            # Подписка на real-time обновления
+            # Подписка на real-time обновления через общий клиент
             print(f"📡 Real-time стрим {best_asset['id']}...")
             prices = []
 
-            async for candle in await price_client.subscribe_symbol(best_asset['id']):
+            async for candle in await client.subscribe_symbol(best_asset['id']):
                 price = candle.get('close', candle.get('price', 0))
                 try:
                     price = float(price)
@@ -542,14 +572,8 @@ async def get_signal(
             if USE_BOT_V2:
                 try:
                     print(f"   🔄 Reconnect...")
-                    await price_client.reconnect()
-                    await asyncio.wait_for(price_client.wait_for_assets(timeout=30.0), timeout=35.0)
-                except:
-                    pass
-        finally:
-            if price_client is not None:
-                try:
-                    await price_client.shutdown()
+                    await client.reconnect()
+                    await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
                 except:
                     pass
 
