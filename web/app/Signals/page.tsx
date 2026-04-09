@@ -72,9 +72,8 @@ function SearchPage() {
 
     // Проверяем лимит сигналов
     if (signalsUsed >= signalsLimit) {
-      return { 
-        available: false, 
-        reason: `Вы исчерпали лимит сигналов на сегодня (${signalsLimit}/${signalsLimit})` 
+      return {
+        available: false
       };
     }
 
@@ -113,6 +112,13 @@ function SearchPage() {
 
       if (!response.ok) {
         const errorMsg = result.detail || result.error || t("signals.findSignalError");
+        
+        // Если лимит исчерпан (429), показываем модалку
+        if (response.status === 429) {
+          setShowLimitModal(true);
+          return;
+        }
+        
         throw new Error(errorMsg);
       }
 
@@ -402,7 +408,7 @@ function SearchPage() {
           >
             <Button
               onClick={handleSearch}
-              disabled={isLoading || (user?.role !== 'admin' && signalsUsed >= signalsLimit)}
+              disabled={isLoading}
               size="lg"
               className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-700 hover:via-purple-700 hover:to-pink-700 px-8 sm:px-12 py-4 sm:py-6 text-base sm:text-lg font-semibold rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-purple-500/25 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100 w-full sm:w-auto group"
             >
@@ -415,9 +421,7 @@ function SearchPage() {
                 ) : (
                   <>
                     <Search className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                    {user?.role !== 'admin' && signalsUsed >= signalsLimit
-                      ? t("signals.limitExhausted")
-                      : t("signals.findSignal")}
+                    {t("signals.findSignal")}
                   </>
                 )}
               </span>
@@ -425,15 +429,6 @@ function SearchPage() {
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
               )}
             </Button>
-            {user?.role !== 'admin' && signalsUsed >= signalsLimit && (
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-3 text-xs sm:text-sm text-yellow-400 px-2"
-              >
-                ⚠️ {t("signals.limitExhaustedDesc")}
-              </motion.p>
-            )}
           </motion.div>
         </motion.div>
 
