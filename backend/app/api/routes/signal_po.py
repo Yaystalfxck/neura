@@ -409,14 +409,13 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # === ГЕНЕРАЦИЯ СИГНАЛА (СЕССИОННАЯ МОДЕЛЬ) ===
+        # === ГЕНЕРАЦИЯ СИГНАЛА (BinaryOptionsToolsV2 с Real-time данными) ===
         print(f"\n🚀 Начинаем генерацию сигнала...")
-        # BinaryOptionsToolsV2: один клиент = один запрос свечей
-        # Создаем/закрываем клиента для каждого актива отдельно
+        print(f"📡 Используем BinaryOptionsToolsV2 для real-time данных")
 
         analyzed_candidates = []
 
-        # Список активов для анализа
+        # Список OTC активов для анализа
         currency_pairs = [
             {"id": "EURUSD_otc", "name": "EUR/USD OTC"}, {"id": "GBPUSD_otc", "name": "GBP/USD OTC"},
             {"id": "AUDUSD_otc", "name": "AUD/USD OTC"}, {"id": "USDJPY_otc", "name": "USD/JPY OTC"},
@@ -426,181 +425,185 @@ async def get_signal(
             {"id": "GBPJPY_otc", "name": "GBP/JPY OTC"}, {"id": "AUDJPY_otc", "name": "AUD/JPY OTC"},
         ]
 
-        print("✅ Начинаем сканирование активов...")
+        print(f"📊 Начинаем сканирование {len(currency_pairs)} активов...")
 
-        # 2. Цикл анализа - для каждого актива создаем временного клиента
-        # BinaryOptionsToolsV2: один клиент = один запрос свечей (сессионная модель)
-        failed_assets = 0
-        max_failed = 5  # Если 5 активов подряд провалились - прекращаем
+        # Создаем ОДИН клиент для всех активов (BinaryOptionsToolsV2 поддерживает это!)
+        ssid = settings.POCKETOPTION_SESSION_TOKEN
+        is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
 
-        for asset in currency_pairs:
-            client = None
-            try:
-                # Создаем временного клиента для получения свечей
-                ssid = settings.POCKETOPTION_SESSION_TOKEN
-                is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
+        if USE_BOT_V2:
+            client = PocketOptionAsync(ssid=ssid)
+        else:
+            client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
 
-                if USE_BOT_V2:
-                    client = PocketOptionAsync(ssid=ssid)
-                else:
-                    client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+        try:
+            # Подключаемся
+            print(f"🔌 Подключение к PocketOption...")
+            await client.connect()
 
-                print(f"   🔌 {asset['name']}: подключение...")
-                await client.connect()
-                
-                if USE_BOT_V2:
-                    try:
-                        # Уменьшаем timeout до 15 сек чтобы не ждать зря
-                        print(f"   ⏳ {asset['name']}: ожидание активов...")
-                        await asyncio.wait_for(
-                            client.wait_for_assets(timeout=15.0),
-                            timeout=18.0
-                        )
-                        print(f"   ✅ {asset['name']}: активы загружены")
-                    except Exception as init_err:
-                        print(f"   ⚠️ {asset['name']}: ошибка инициализации {init_err}")
-                        # Пробуем продолжить
-                        await asyncio.sleep(2)
+            if USE_BOT_V2:
+                print(f"⏳ Ожидание активов...")
+                await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
+                print(f"✅ Активы загружены!")
 
-                # Запрос свечей (10000 сек истории)
-                print(f"   📊 {asset['name']}: получение свечей...")
-                hist_candles = await client.get_candles(asset['id'], 60, 10000)
-                print(f"   ✅ {asset['name']}: получено {len(hist_candles) if hist_candles else 0} свечей")
+            # Анализируем каждый актив
+            failed_assets = 0
+            max_failed = 5
 
-                # Сразу закрываем клиента - он больше не нужен
-                if client is not None:
-                    try:
-                        await client.shutdown()
-                    except:
-                        pass
-                    client = None
-
-                # ВАЖНО: Пауза 3 сек между активами чтобы не спамить подключениями
-                await asyncio.sleep(3)
-
-                if not hist_candles or len(hist_candles) < 20:
-                    continue
-
-                # Конвертация в числа
-                clean_candles = []
-                for c in hist_candles:
-                    try:
-                        clean_candles.append({
-                            'time': c.get('time', 0),
-                            'open': float(c.get('open', 0)),
-                            'high': float(c.get('high', 0)),
-                            'low': float(c.get('low', 0)),
-                            'close': float(c.get('close', 0)),
-                        })
-                    except: pass
-
-                # ML Анализ
-                signal = None
+            for asset in currency_pairs:
                 try:
-                    ml_gen = get_ml()
-                    ml_gen.train(clean_candles)
-                    ml_result = ml_gen.predict(clean_candles)
-                    if ml_result and ml_result.get('confidence', 0) > 0.55:
-                        signal = {
-                            "signal_type": ml_result.get('direction', 'call'),
-                            "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
-                            "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
-                            "current_price": clean_candles[-1]['close'],
-                            "expiry_minutes": 5,
-                            "pair_name": asset['name'],
-                            "trend": ml_result.get('trend', 'neutral'),
-                            "rsi": ml_result.get('rsi', 50),
-                            "pattern_detected": "ML_PREDICTION",
-                            "payout": "85%",
-                            "db_strategy": "MACHINE_LEARNING"
-                        }
-                except Exception as ml_err:
-                    print(f"   ⚠️ ML ошибка для {asset['id']}: {ml_err}")
+                    print(f"\n📈 Анализ {asset['name']}...")
 
-                # Индикаторы (если ML не дал сигнала)
-                if signal is None:
-                    signal = advanced_signal_strategy(clean_candles, asset, "indicators")
+                    # Получаем свечи (BinaryOptionsToolsV2 get_candles)
+                    hist_candles = await client.get_candles(asset['id'], 60, 10000)
 
-                if signal:
-                    conf_str = signal.get('confidence', '50%')
-                    conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+                    if not hist_candles or len(hist_candles) < 20:
+                        print(f"   ⚠️ Недостаточно данных ({len(hist_candles) if hist_candles else 0} свечей)")
+                        continue
 
-                    closes = [float(c.get('close', 0)) for c in hist_candles[-20:]]
-                    volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
+                    print(f"   ✅ Получено {len(hist_candles)} свечей")
 
-                    analyzed_candidates.append({
-                        'asset': asset, 'signal': signal,
-                        'confidence': conf, 'volatility_pct': volatility_pct
-                    })
-                    print(f"   ✅ {asset['name']}: сигнал {signal.get('signal_type', '?')} ({conf}%)")
+                    # Конвертация в формат для анализа
+                    clean_candles = []
+                    for c in hist_candles:
+                        try:
+                            clean_candles.append({
+                                'time': c.get('time', 0),
+                                'open': float(c.get('open', 0)),
+                                'high': float(c.get('high', 0)),
+                                'low': float(c.get('low', 0)),
+                                'close': float(c.get('close', 0)),
+                            })
+                        except: pass
 
-            except Exception as e:
-                err_msg = str(e).lower()
-                failed_assets += 1
-                print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
-                
-                # Безопасно закрываем клиента при ошибке
-                if client is not None:
+                    if len(clean_candles) < 20:
+                        continue
+
+                    # === ML Анализ ===
+                    signal = None
                     try:
-                        await client.shutdown()
-                    except:
-                        pass
-                    client = None
+                        ml_gen = get_ml()
+                        ml_gen.train(clean_candles)
+                        ml_result = ml_gen.predict(clean_candles)
 
-                # При ошибке ждем дольше перед следующим активом
-                print(f"   ⏳ Пауза 5 сек после ошибки...")
-                await asyncio.sleep(5)
+                        if ml_result and ml_result.get('confidence', 0) > 0.55:
+                            signal = {
+                                "signal_type": ml_result.get('direction', 'call'),
+                                "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
+                                "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
+                                "current_price": clean_candles[-1]['close'],
+                                "expiry_minutes": 5,
+                                "pair_name": asset['name'],
+                                "trend": ml_result.get('trend', 'neutral'),
+                                "rsi": ml_result.get('rsi', 50),
+                                "pattern_detected": "ML_PREDICTION",
+                                "payout": "85%",
+                                "db_strategy": "MACHINE_LEARNING"
+                            }
+                            print(f"   🤖 ML сигнал: {signal['signal_type']} ({signal['confidence']})")
+                    except Exception as ml_err:
+                        print(f"   ⚠️ ML ошибка: {ml_err}")
 
-                # Если слишком много ошибок подряд - прекращаем
-                if failed_assets >= max_failed:
-                    print(f"   ⚠️ Слишком много ошибок ({failed_assets}), прекращаем сканирование")
-                    break
+                    # === Индикаторы (если ML не дал сигнала) ===
+                    if signal is None:
+                        signal = advanced_signal_strategy(clean_candles, asset, "indicators")
+                        if signal:
+                            print(f"   📊 Индикаторы сигнал: {signal.get('signal_type', '?')}")
 
-        # ВАЖНО: Мы НЕ закрываем соединение (bot_client.disconnect()) здесь.
-        # Оно остается в пуле (_global_ws_client) для следующих пользователей.
-        # Оно закроется само через 5 минут бездействия.
+                    # Добавляем в кандидаты
+                    if signal:
+                        conf_str = signal.get('confidence', '50%')
+                        conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
 
+                        closes = [c['close'] for c in clean_candles[-20:]]
+                        volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
+
+                        analyzed_candidates.append({
+                            'asset': asset,
+                            'signal': signal,
+                            'confidence': conf,
+                            'volatility_pct': volatility_pct,
+                            'candles_count': len(clean_candles)
+                        })
+                        print(f"   ✅ Кандидат: {conf}% уверенности, волатильность {volatility_pct:.2f}%")
+
+                except Exception as e:
+                    failed_assets += 1
+                    print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+
+                    if failed_assets >= max_failed:
+                        print(f"   ⚠️ Слишком много ошибок ({failed_assets}), останавливаем")
+                        break
+
+                    # Пауза перед следующим активом
+                    await asyncio.sleep(1)
+
+        finally:
+            # Закрываем клиент
+            if client is not None:
+                try:
+                    await client.shutdown()
+                except:
+                    pass
+
+        # === Выбираем лучший актив по уверенности ===
         if not analyzed_candidates:
             raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
 
-        # Выбираем лучший актив по уверенности
-        best_candidate = max(analyzed_candidates, key=lambda x: x['confidence'])
+        # Сортируем по уверенности
+        analyzed_candidates.sort(key=lambda x: x['confidence'], reverse=True)
+
+        best_candidate = analyzed_candidates[0]
         best_asset = best_candidate['asset']
         signal = best_candidate['signal']
         volatility = best_candidate['volatility_pct']
 
-        print(f"\n🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']} (Уверенность: {best_candidate['confidence']}%)")
-        print(f"   📉 Волатильность: {volatility:.3f}%")
+        print(f"\n{'='*60}")
+        print(f"🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']}")
+        print(f"   Уверенность: {best_candidate['confidence']}%")
+        print(f"   Волатильность: {volatility:.2f}%")
+        print(f"   Свечей проанализировано: {best_candidate['candles_count']}")
+        print(f"{'='*60}")
 
-        # === ЭТАП 2: ПОЛУЧЕНИЕ РЕАЛЬНОЙ ЦЕНЫ ===
-        # Создаем временного клиента для получения свежей цены
-        print(f"   💰 Получение реальной цены...")
-        realtime_price = 0.0
+        # === ПОЛУЧЕНИЕ REAL-TIME ЦЕНЫ через BinaryOptionsToolsV2 ===
+        print(f"\n💰 Получение real-time цены...")
+        realtime_price = float(signal.get('current_price', 0))
 
+        # Получаем свежие свечи для лучшей пары
         price_client = None
         try:
             ssid = settings.POCKETOPTION_SESSION_TOKEN
-            is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
 
             if USE_BOT_V2:
                 price_client = PocketOptionAsync(ssid=ssid)
-            else:
-                price_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+                await price_client.connect()
+                await asyncio.wait_for(price_client.wait_for_assets(timeout=30.0), timeout=35.0)
 
-            await price_client.connect()
-            
-            if USE_BOT_V2:
-                try:
-                    await asyncio.wait_for(price_client.wait_for_assets(timeout=30.0), timeout=35.0)
-                except:
-                    await asyncio.sleep(1)
+                # Подписка на real-time обновления
+                print(f"📡 Real-time стрим {best_asset['id']}...")
+                prices = []
 
-            # Запрашиваем свежие свечи (1 минута)
-            last_candles = await price_client.get_candles(best_asset['id'], 60, 100)
-            if last_candles and len(last_candles) > 0:
-                realtime_price = float(last_candles[-1].get('close', 0))
+                async for candle in await price_client.subscribe_symbol(best_asset['id']):
+                    price = candle.get('close', candle.get('price', 0))
+                    try:
+                        price = float(price)
+                        prices.append(price)
+                        print(f"   💰 Цена: {price:.5f}")
+                    except:
+                        pass
+
+                    # Ждем 5 секунд для получения real-time цены
+                    if len(prices) >= 5:
+                        break
+
+                if prices:
+                    realtime_price = prices[-1]
+                    print(f"   ✅ Real-time цена: {realtime_price:.5f}")
+                else:
+                    print(f"   ⚠️ Стрим не получен, используем историческую цену")
+
         except Exception as e:
-            print(f"   ⚠️ Ошибка получения цены: {e}")
+            print(f"   ⚠️ Ошибка real-time: {e}")
         finally:
             if price_client is not None:
                 try:
@@ -608,59 +611,35 @@ async def get_signal(
                 except:
                     pass
 
-        if realtime_price > 0:
-            signal['current_price'] = realtime_price
-            print(f"   ✅ Реальная цена (Live): {realtime_price:.5f}")
-        else:
-            # Если стрим не дал данных, берем последнее закрытие (может отставать)
-            fallback = float(signal.get('current_price', 0))
-            if fallback > 0:
-                signal['current_price'] = fallback
-                print(f"   ⚠️ Используем цену истории (Live недоступна): {fallback:.5f}")
-            else:
-                print(f"   ❌ Не удалось получить цену")
+        # Обновляем цену в сигнале
+        signal['current_price'] = realtime_price
 
-        # === ЭТАП 3: РАСЧЕТ ОПТИМАЛЬНОЙ ЭКСПИРАЦИИ ===
-        # Логика: 1-10 минут, основной фокус на 3-5 минут
-        # Используем волатильность для выбора времени
+        # === РАСЧЕТ ЭКСПИРАЦИИ ===
         import random
 
-        # Волатильность рассчитывается как % изменения цены за последние 20 свечей
-        # 0.1% - Низкая, 0.3% - Средняя, 0.5%+ - Высокая
-
         if volatility < 0.15:
-            # Низкая волатильность: рынок "спит", нужно ждать дольше для движения
-            # Рекомендация: 5-7 минут
             optimal_timeframe = 5
-            print(f"   🐢 Низкая волатильность -> экспирация {optimal_timeframe} мин")
+            print(f"   🐢 Низкая волатильность -> {optimal_timeframe} мин")
         elif volatility < 0.35:
-            # Средняя волатильность: "Золотая середина"
-            # Рекомендация: 3-5 минут (Основной фокус)
             optimal_timeframe = random.choice([3, 4, 5])
-            print(f"   ⚖️ Средняя волатильность -> экспирация {optimal_timeframe} мин")
+            print(f"   ⚖️ Средняя волатильность -> {optimal_timeframe} мин")
         elif volatility < 0.60:
-            # Высокая волатильность: быстрые движения, нужно забирать прибыль быстро
-            # Рекомендация: 2-4 минуты
             optimal_timeframe = random.choice([2, 3, 4])
-            print(f"   🚀 Высокая волатильность -> экспирация {optimal_timeframe} мин")
+            print(f"   🚀 Высокая волатильность -> {optimal_timeframe} мин")
         else:
-            # Очень высокая волатильность: скальпинг
-            # Рекомендация: 1-2 минуты
             optimal_timeframe = random.choice([1, 2])
-            print(f"   ⚡ Очень высокая волатильность -> экспирация {optimal_timeframe} мин")
+            print(f"   ⚡ Очень высокая -> {optimal_timeframe} мин")
 
-        print(f"   ⏱️ Итоговое рекомендуемое время: {optimal_timeframe} мин")
-        signal['expiry_minutes'] = optimal_timeframe # Обновляем в сигнале
+        signal['expiry_minutes'] = optimal_timeframe
 
-        print(f"\n🏆 ЛУЧШИЙ СИГНАЛ: {best_asset['name']}")
+        print(f"\n🎯 ИТОГОВЫЙ СИГНАЛ:")
+        print(f"   Актив: {best_asset['name']}")
         print(f"   Направление: {signal.get('signal_type', '?').upper()}")
         print(f"   Уверенность: {best_candidate['confidence']:.1f}%")
-        print(f"   💰 Реальная цена: {realtime_price:.5f}")
+        print(f"   Цена: {realtime_price:.5f}")
+        print(f"   Экспирация: {optimal_timeframe} мин")
 
-        # Обновляем цену в сигнале
-        signal['current_price'] = float(realtime_price)
-
-        # === СОХРАНЯЕМ ИСПОЛЬЗОВАНИЕ СИГНАЛА В БД ===
+        # === СОХРАНЕНИЕ В БД ===
         try:
             signal_usage = SignalUsage(
                 user_id=current_user.id,
@@ -669,28 +648,27 @@ async def get_signal(
             )
             db.add(signal_usage)
             await db.commit()
-            print(f"✅ Использование сигнала сохранено в БД (user_id={current_user.id})")
+            print(f"✅ Сохранено в БД")
         except Exception as db_err:
-            print(f"⚠️ Ошибка сохранения в БД: {db_err}")
-            # НЕ блокируем возврат сигнала из-за ошибки БД
+            print(f"⚠️ Ошибка БД: {db_err}")
             try:
                 await db.rollback()
             except:
                 pass
 
-        # Форматируем и возвращаем
         return {
             "success": True,
             "signal": format_signal_response(signal, user_balance),
             "balance": float(user_balance),
             "market_data_summary": {
                 "assets_analyzed": len(currency_pairs),
+                "assets_with_signals": len(analyzed_candidates),
                 "timeframe": timeframe,
                 "market": market,
                 "strategy": strategy_type,
                 "min_payout": min_payout,
                 "timestamp": datetime.utcnow().isoformat(),
-                "data_source": "BinaryOptionsToolsV2" if USE_BOT_V2 else "PocketOptionAsync"
+                "data_source": "BinaryOptionsToolsV2 Real-time"
             }
         }
 
