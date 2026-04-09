@@ -173,7 +173,10 @@ def analyze_trend_strength(candles: List[Dict]) -> Dict:
             lows.append(float(getattr(c, 'low', 0)))
     
     if highs and lows:
-        range_size = (max(highs) - min(lows)) / min(lows) * 100
+        min_low = min(lows)
+        if min_low == 0:
+            min_low = 1  # Prevent division by zero
+        range_size = (max(highs) - min(lows)) / min_low * 100
         # Нормализуем ADX (0-100)
         adx = min(100, range_size * 10)
     else:
@@ -239,7 +242,7 @@ def analyze_volume_profile(candles: List[Dict]) -> Dict:
     # Средний объем (диапазон) за последние 10 свечей
     recent_avg = sum(r['range'] for r in ranges[-10:]) / 10
     # Средний объем за все время
-    total_avg = sum(r['range'] for r in ranges) / len(ranges)
+    total_avg = sum(r['range'] for r in ranges) / len(ranges) if len(ranges) > 0 else 1
     
     volume_ratio = recent_avg / total_avg if total_avg > 0 else 1.0
     is_high_volume = volume_ratio > 1.5
