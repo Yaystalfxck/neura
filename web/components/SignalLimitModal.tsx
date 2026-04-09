@@ -96,15 +96,15 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                 transition={{ delay: 0.1 }}
                 className="text-center mb-6"
               >
-                <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl mb-4 shadow-lg shadow-amber-500/25">
+                <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-2xl mb-4 shadow-lg shadow-purple-500/25">
                   <AlertCircle className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
                 </div>
-                <h2 className="text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">
+                <h2 className="text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
                   Лимит сигналов исчерпан
                 </h2>
                 <p className="text-gray-400 text-sm">
-                  Вы использовали <span className="text-amber-400 font-semibold">{signalsUsed}</span> из{' '}
-                  <span className="text-amber-400 font-semibold">{signalsLimit}</span> сигналов сегодня
+                  Вы использовали <span className="text-purple-400 font-semibold">{signalsUsed}</span> из{' '}
+                  <span className="text-purple-400 font-semibold">{signalsLimit}</span> сигналов сегодня
                 </p>
               </motion.div>
 
@@ -117,8 +117,8 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-500/10 rounded-lg">
-                      <CreditCard className="w-5 h-5 text-green-400" />
+                    <div className="p-2 bg-blue-500/10 rounded-lg">
+                      <CreditCard className="w-5 h-5 text-blue-400" />
                     </div>
                     <div>
                       <div className="text-xs text-gray-400">Ваш баланс</div>
@@ -128,7 +128,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                   {nextTierBalance && (
                     <div className="text-right">
                       <div className="text-xs text-gray-400">До следующего лимита</div>
-                      <div className="text-lg font-bold text-amber-400">${nextTierBalance}</div>
+                      <div className="text-lg font-bold text-purple-400">${nextTierBalance}</div>
                     </div>
                   )}
                 </div>
@@ -142,7 +142,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                 className="space-y-3 mb-6"
               >
                 <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-amber-400" />
+                  <Zap className="w-4 h-4 text-purple-400" />
                   Доступные тарифы
                 </h3>
                 
@@ -156,7 +156,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                       transition={{ delay: 0.3 + index * 0.1 }}
                       className={`relative p-3 sm:p-4 rounded-xl border cursor-pointer transition-all hover:scale-[1.02] ${
                         plan.popular
-                          ? 'border-purple-500/50 bg-gradient-to-r from-purple-900/20 to-pink-900/20'
+                          ? 'border-purple-500/50 bg-gradient-to-r from-purple-900/20 to-blue-900/20'
                           : 'border-gray-700/50 bg-gray-800/30 hover:border-gray-600'
                       }`}
                     >
@@ -191,7 +191,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                 className="space-y-3"
               >
                 <Button
-                  className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold py-5 sm:py-6 rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-amber-500/25"
+                  className="w-full bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-700 hover:via-purple-700 hover:to-pink-700 text-white font-semibold py-5 sm:py-6 rounded-xl transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-purple-500/25"
                   onClick={() => {
                     // Redirect to top-up page
                     window.location.href = '/profile?tab=balance';
@@ -215,7 +215,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.7 }}
-                className="mt-4 p-3 bg-blue-900/10 border border-blue-700/30 rounded-lg"
+                className="mt-4 p-3 bg-purple-900/10 border border-purple-700/30 rounded-lg"
               >
                 <p className="text-xs text-gray-400 text-center">
                   💡 Лимиты обновляются ежедневно в 00:00 UTC. Или пополните баланс для увеличения лимита.
