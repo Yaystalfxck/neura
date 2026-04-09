@@ -4,6 +4,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Zap, CreditCard, TrendingUp, AlertCircle, Check, ArrowRight, Star, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/app/contexts/LanguageContext';
 
 interface SignalLimitModalProps {
   isOpen: boolean;
@@ -22,32 +23,33 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
   nextTierBalance,
   currentBalance = 0,
 }) => {
+  const { t } = useLanguage();
   const requiredTopUp = nextTierBalance ? Math.max(0, nextTierBalance - currentBalance) : 0;
 
   const plans = [
     {
-      name: 'Базовый',
+      name: t('signals.limitModalBasic'),
       price: '$10',
       balance: '$50',
-      signals: '3 сигнала/день',
+      signals: t('signals.limitModalBasicSignals'),
       icon: TrendingUp,
       color: 'from-blue-500 to-cyan-500',
       popular: false,
     },
     {
-      name: 'Про',
+      name: t('signals.limitModalPro'),
       price: '$25',
       balance: '$150',
-      signals: '4 сигнала/день',
+      signals: t('signals.limitModalProSignals'),
       icon: Star,
       color: 'from-purple-500 to-pink-500',
       popular: true,
     },
     {
-      name: 'Премиум',
+      name: t('signals.limitModalPremium'),
       price: '$50',
       balance: '$250',
-      signals: '5 сигналов/день',
+      signals: t('signals.limitModalPremiumSignals'),
       icon: Crown,
       color: 'from-amber-500 to-orange-500',
       popular: false,
@@ -100,11 +102,10 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                   <AlertCircle className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  Лимит сигналов исчерпан
+                  {t('signals.limitModalTitle')}
                 </h2>
                 <p className="text-gray-400 text-sm">
-                  Вы использовали <span className="text-purple-400 font-semibold">{signalsUsed}</span> из{' '}
-                  <span className="text-purple-400 font-semibold">{signalsLimit}</span> сигналов сегодня
+                  {t('signals.limitModalSubtitle').replace('{used}', String(signalsUsed)).replace('{limit}', String(signalsLimit))}
                 </p>
               </motion.div>
 
