@@ -9,6 +9,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { useLanguage } from '@/app/contexts/LanguageContext';
 import { SignalLoadingAnimation } from '@/components/SignalLoadingAnimation';
 import { TradingBackground } from '@/components/TradingBackground';
+import { SignalLimitModal } from '@/components/SignalLimitModal';
 
 export default function SignalFound() {
   return (
@@ -30,6 +31,8 @@ function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [signalsUsed, setSignalsUsed] = useState<number>(0);
   const [signalsLimit, setSignalsLimit] = useState<number>(1);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [nextTierBalance, setNextTierBalance] = useState<number>(25);
   
   // Флаги для предотвращения множественных запросов
   const initialLoadDone = useRef(false);
@@ -52,8 +55,9 @@ function SearchPage() {
       const data = await response.json();
 
       if (data.success) {
-        setSignalsUsed(data.used || 0);
-        setSignalsLimit(data.limit || 1);
+        setSignalsUsed(data.used_today || data.used || 0);
+        setSignalsLimit(data.daily_limit || data.limit || 1);
+        setNextTierBalance(data.next_limit_balance || data.next_tier_balance || 25);
       }
     } catch (error) {
       console.error('Error loading signal limits:', error);
@@ -81,7 +85,8 @@ function SearchPage() {
     // Проверяем доступность сигнала
     const availability = checkSignalAvailability();
     if (!availability.available) {
-      setError(availability.reason || t("signals.limitExhausted"));
+      // Показываем модальное окно вместо ошибки
+      setShowLimitModal(true);
       return;
     }
 
@@ -444,6 +449,16 @@ function SearchPage() {
             </div>
           </div>
         )}
+
+        {/* Модальное окно лимита сигналов */}
+        <SignalLimitModal
+          isOpen={showLimitModal}
+          onClose={() => setShowLimitModal(false)}
+          signalsUsed={signalsUsed}
+          signalsLimit={signalsLimit}
+          nextTierBalance={nextTierBalance}
+          currentBalance={user?.balance || 0}
+        />
 
         {/* Информационные карточки */}
         <motion.div
