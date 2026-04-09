@@ -282,25 +282,32 @@ async def get_signal(
     - Market/Bиржа → TradingView (frontend)
     """
     global _global_ws_client
-    
+
     market = data.get("market", "otc")
-    
+
     # Маршрутизация в зависимости от рынка
     if market.lower() in ["market", "биржа", "exchange"]:
         # Используем TradingView для Market/Bиржа
         from app.api.routes.signal_tv import get_signal_tradingview
         print(f"\n📊 Перенаправление на TradingView (market={market})")
         return await get_signal_tradingview(data, current_user, db)
-    
-    # Для OTC и Demo используем Pocket Option
-    # Demo будет использовать демо-счет (isDemo: 1)
+
+    # Для Demo используем демо-данные с полным анализом
+    if market.lower() == "demo":
+        print(f"\n📊 ========== ЗАПРОС СИГНАЛА (DEMO) ==========")
+        print(f"Пользователь: {current_user.email} (ID: {current_user.id})")
+        timeframe = data.get("timeframe", "1")
+        strategy_type = data.get("strategy", data.get("ai_type", data.get("aiType", "indicators")))
+        return await get_demo_signal_otc(current_user, db, timeframe, strategy_type)
+
+    # Для OTC используем реальный счет
     try:
         market = data.get("market", "otc")
         timeframe = data.get("timeframe", "1")
         strategy_type = data.get("strategy", data.get("ai_type", data.get("aiType", "indicators")))
         min_payout = data.get("min_payout", 80)
 
-        print(f"\n📊 ========== ЗАПРОС СИГНАЛА ({'DEMO' if market.lower() == 'demo' else 'OTC'}) ==========")
+        print(f"\n📊 ========== ЗАПРОС СИГНАЛА (OTC) ==========")
         print(f"Пользователь: {current_user.email} (ID: {current_user.id})")
         print(f"Параметры: market={market}, timeframe={timeframe}m, strategy={strategy_type}, min_payout={min_payout}%")
 
@@ -683,6 +690,173 @@ async def get_signal(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при генерации сигнала: {str(e)}"
         )
+
+
+async def get_demo_signal_otc(current_user: User, db: AsyncSession, timeframe: str, strategy_type: str):
+    """
+    Демо сигнал для OTC с полным анализом (ML + стратегии + S/R)
+    Не требует подключения к PocketOption
+    """
+    import math
+    import time
+
+    print(f"\n🎮 Генерация демо-сигнала (OTC)...")
+
+    # Генерируем демо-свечи на основе текущего времени
+    now_ts = int(time.time())
+    base_price = 1.0850  # EUR/USD
+
+    demo_candles = []
+    for i in range(150):
+        ts = now_ts - (150 - i) * 60
+        price_variation = math.sin(i / 10) * 0.005 + math.cos(i / 5) * 0.003
+        open_p = base_price + price_variation
+        close_p = open_p + (math.sin(i / 3) * 0.002)
+        high_p = max(open_p, close_p) + 0.001
+        low_p = min(open_p, close_p) - 0.001
+
+        demo_candles.append({
+            'time': ts,
+            'open': open_p,
+            'high': high_p,
+            'low': low_p,
+            'close': close_p
+        })
+
+    signal = None
+
+    # 1. ML анализ
+    if strategy_type.lower() in ['ml', 'neural_ai', 'neural']:
+        try:
+            ml_gen = get_ml_generator()
+            ml_gen.train(demo_candles)
+            ml_result = ml_gen.predict(demo_candles)
+            if ml_result and ml_result.get('confidence', 0) > 0.50:
+                direction = ml_result.get('direction', 'call')
+                confidence_pct = ml_result.get('confidence', 0) * 100
+                signal = {
+                    "signal_type": direction,
+                    "strength": "strong" if confidence_pct > 75 else "medium",
+                    "confidence": f"{confidence_pct:.0f}%",
+                    "current_price": demo_candles[-1]['close'],
+                    "expiry_minutes": 5,
+                    "pair_name": "EUR/USD OTC",
+                    "trend": ml_result.get('trend', 'neutral'),
+                    "rsi": ml_result.get('rsi', 50),
+                    "pattern_detected": "ML_DEMO",
+                    "payout": "85%",
+                    "db_strategy": "MACHINE_LEARNING",
+                    "data_source": "demo_ml"
+                }
+                print(f"   🤖 ML сигнал: {direction.upper()} ({confidence_pct:.0f}%)")
+        except Exception as e:
+            print(f"⚠️ Демо ML ошибка: {e}")
+
+    # 2. Комбинированный анализ стратегий
+    combined = combined_strategy_analysis(demo_candles)
+    if combined['signal'] and combined['confidence'] > 50:
+        combined_conf = combined['confidence']
+        current_conf = float(signal.get('confidence', '0').replace('%', '')) if signal else 0
+
+        if combined_conf > current_conf:
+            signal = {
+                "signal_type": combined['signal'],
+                "strength": "strong" if combined_conf > 75 else "medium",
+                "confidence": f"{combined_conf:.0f}%",
+                "current_price": demo_candles[-1]['close'],
+                "expiry_minutes": 5,
+                "pair_name": "EUR/USD OTC",
+                "trend": combined['strategies'].get('trend', {}).get('signal', 'neutral'),
+                "rsi": 50,
+                "pattern_detected": "COMBINED_STRATEGIES_DEMO",
+                "payout": "85%",
+                "db_strategy": "INDICATORS",
+                "data_source": "demo_combined",
+                "strategies_used": list(combined['strategies'].keys())
+            }
+            print(f"   🎯 Комбинированный анализ: {combined['signal'].upper()} ({combined_conf:.0f}%)")
+
+    # 3. Уровни поддержки/сопротивления
+    sr_levels = calculate_support_resistance_levels(demo_candles)
+    sr_adjustment = 0
+    if signal and sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
+        dist_to_support = sr_levels['nearest_support']['distance_pct']
+        dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
+        support_strength = sr_levels['nearest_support']['strength']
+        resistance_strength = sr_levels['nearest_resistance']['strength']
+
+        if dist_to_support < 0.5 and support_strength > 0.5:
+            sr_adjustment += 5
+        elif dist_to_resistance < 0.5 and resistance_strength > 0.5:
+            sr_adjustment += 5
+        elif dist_to_support > 1.0 and dist_to_resistance > 1.0:
+            sr_adjustment -= 3
+
+        if sr_adjustment != 0:
+            conf_str = signal.get('confidence', '50%')
+            conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+            conf = max(50, min(95, conf + sr_adjustment))
+            signal['confidence'] = f"{conf:.0f}%"
+            signal['support_resistance'] = {
+                'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
+                'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
+                'adjustment': sr_adjustment
+            }
+
+    # 4. Фоллбэк на индикаторы
+    if signal is None:
+        from app.po_strategies_advanced import advanced_signal_strategy
+        demo_asset = {"name": "EUR/USD OTC", "payout": 85}
+        signal = advanced_signal_strategy(demo_candles, demo_asset, "indicators")
+        if signal:
+            signal['data_source'] = 'demo_indicators'
+        else:
+            signal = {
+                "signal_type": "call",
+                "strength": "medium",
+                "confidence": "65%",
+                "current_price": demo_candles[-1]['close'],
+                "expiry_minutes": 5,
+                "pair_name": "EUR/USD OTC",
+                "payout": "85%",
+                "db_strategy": "INDICATORS",
+                "data_source": "demo_fallback"
+            }
+
+    # Расчет экспирации
+    volatility = 1.0
+    if volatility < 0.5:
+        optimal_timeframe = 7
+    elif volatility > 2:
+        optimal_timeframe = 3
+    else:
+        optimal_timeframe = 5
+
+    signal['expiry_minutes'] = optimal_timeframe
+
+    print(f"\n✅ ДЕМО СИГНАЛ СГЕНЕРИРОВАН:")
+    print(f"   Пара: {signal['pair_name']}")
+    print(f"   Направление: {signal['signal_type'].upper()}")
+    print(f"   Уверенность: {signal['confidence']}")
+    print(f"   Экспирация: {optimal_timeframe} мин")
+
+    user_balance = current_user.balance if current_user.balance else 1000.0
+
+    # Форматируем ответ
+    return {
+        "success": True,
+        "signal": format_signal_response(signal, user_balance),
+        "balance": user_balance,
+        "market_data_summary": {
+            "assets_analyzed": 1,
+            "timeframe": timeframe,
+            "market": "demo",
+            "strategy": strategy_type,
+            "data_source": "demo_with_full_analysis",
+            "strategies": ["ML", "Combined Strategies", "Support/Resistance", "Indicators"],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    }
 
 
 def generate_fallback_signal(assets) -> dict:
