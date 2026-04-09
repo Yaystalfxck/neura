@@ -455,7 +455,7 @@ async def get_signal(
                                 "rsi": 50,
                                 "pattern_detected": "COMBINED_STRATEGIES",
                                 "payout": "85%",
-                                "db_strategy": "COMBINED",
+                                "db_strategy": "INDICATORS",  # Используем существующий enum вместо COMBINED
                                 "strategies_used": list(combined['strategies'].keys())
                             }
                             print(f"   ✅ Комбинированный сигнал выбран как основной")

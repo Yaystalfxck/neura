@@ -235,7 +235,7 @@ def analyze_tradingview_signal(tv_data: list, strategy_type: str) -> Optional[di
                     "rsi": indicators.get('rsi', 50),
                     "pattern_detected": "COMBINED_STRATEGIES",
                     "payout": "N/A",
-                    "db_strategy": "COMBINED",
+                    "db_strategy": "INDICATORS",  # Используем существующий enum вместо COMBINED
                     "data_source": "tradingview_combined",
                     "signal_score": int(combined_conf),
                     "strategies_used": list(combined['strategies'].keys())
