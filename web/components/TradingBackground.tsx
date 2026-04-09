@@ -60,6 +60,22 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
       time += 0.016;
       offset += speed;
 
+      // Генерируем новые свечи по мере необходимости
+      const step = candleWidth + gap;
+      const visibleCount = Math.floor(canvas.width / step) + 5;
+      const startIndex = Math.floor(offset / step);
+      const neededCandles = startIndex + visibleCount + 10;
+      
+      while (candles.length < neededCandles) {
+        const lastCandle = candles[candles.length - 1];
+        const open = lastCandle.close;
+        const change = (Math.random() - 0.5) * 0.002;
+        const close = open + change;
+        const high = Math.max(open, close) + Math.random() * 0.001;
+        const low = Math.min(open, close) - Math.random() * 0.001;
+        candles.push({ open, close, high, low });
+      }
+
       // Сетка
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
       ctx.lineWidth = 0.5;
@@ -77,12 +93,8 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
       }
 
       // Рисуем свечи
-      const step = candleWidth + gap;
-      const visibleCount = Math.floor(canvas.width / step) + 2;
-      
-      // Определяем видимые свечи
-      const startIndex = Math.floor(offset / step);
-      
+      // startIndex и visibleCount уже определены выше
+
       // Находим мин/макс цену для масштабирования
       let minP = Infinity, maxP = -Infinity;
       for (let i = startIndex; i < startIndex + visibleCount && i < candles.length; i++) {
