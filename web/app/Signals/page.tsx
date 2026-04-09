@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Search, TrendingUp, Zap, Brain, Clock, Filter, Globe, Cpu, BarChart, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useLanguage } from '@/app/contexts/LanguageContext';
+import { SignalLoadingAnimation } from '@/components/SignalLoadingAnimation';
 
 export default function SignalFound() {
   return (
@@ -363,6 +364,19 @@ function SearchPage() {
             )}
           </div>
         </div>
+
+        {/* Полноэкранная анимация загрузки */}
+        {isLoading && (
+          <div className="fixed inset-0 z-50 bg-gray-900/95 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl">
+              <SignalLoadingAnimation
+                market={market}
+                timeframe={timeframe}
+                aiType={aiType}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Остальной контент (без изменений) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
