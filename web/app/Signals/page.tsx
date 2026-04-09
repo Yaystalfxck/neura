@@ -4,10 +4,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Search, TrendingUp, Zap, Brain, Clock, Filter, Globe, Cpu, BarChart, AlertCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useLanguage } from '@/app/contexts/LanguageContext';
 import { SignalLoadingAnimation } from '@/components/SignalLoadingAnimation';
+import { TradingBackground } from '@/components/TradingBackground';
 
 export default function SignalFound() {
   return (
@@ -182,64 +182,42 @@ function SearchPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white relative overflow-hidden">
-      {/* Фоновая анимация */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {[...Array(20)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute rounded-full bg-blue-500/10"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              width: Math.random() * 100 + 50,
-              height: Math.random() * 100 + 50,
-            }}
-            animate={{
-              y: [0, -50, 0],
-              opacity: [0.1, 0.3, 0.1],
-              scale: [1, 1.2, 1],
-            }}
-            transition={{
-              duration: Math.random() * 5 + 3,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
-          />
-        ))}
-      </div>
-      <div className="container mx-auto px-4 py-12 max-w-4xl">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white relative">
+      {/* Trading фон */}
+      <TradingBackground variant="search" />
+      
+      <div className="relative z-10 container mx-auto px-4 sm:px-6 py-6 sm:py-8 md:py-12 max-w-4xl">
         {/* Заголовок */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-6">
-            <TrendingUp className="w-8 h-8" />
+        <div className="text-center mb-8 sm:mb-12">
+          <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4 sm:mb-6">
+            <TrendingUp className="w-7 h-7 sm:w-8 sm:h-8" />
           </div>
-          <h1 className="text-4xl font-bold mb-4">{t("signals.title")}</h1>
-          <p className="text-gray-400 text-lg">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4 px-2">{t("signals.title")}</h1>
+          <p className="text-gray-400 text-sm sm:text-lg px-2">
             {t("signals.subtitle")}
           </p>
         </div>
 
         {/* Показ ошибок */}
         {error && (
-          <div className="mb-6 p-4 bg-red-900/20 border border-red-700 rounded-xl">
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-900/20 border border-red-700 rounded-xl">
             <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-400 mr-2 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400 mr-2 flex-shrink-0" />
               <div>
-                <div className="font-medium text-red-300">{t("common.error")}</div>
-                <div className="text-sm text-red-400">{error}</div>
+                <div className="font-medium text-red-300 text-sm sm:text-base">{t("common.error")}</div>
+                <div className="text-xs sm:text-sm text-red-400">{error}</div>
               </div>
             </div>
           </div>
         )}
 
-        <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700 p-8 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700 p-4 sm:p-6 md:p-8 mb-6 sm:mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
             {/* Выбор рынка */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
                 <div className="flex items-center gap-2">
-                  <Globe className="w-4 h-4" />
+                  <Globe className="w-3 h-3 sm:w-4 sm:h-4" />
                   {t("signals.marketSelection")}
                 </div>
               </label>
@@ -249,21 +227,21 @@ function SearchPage() {
                   return (
                     <div
                       key={marketItem.value}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all hover:border-blue-500/50 ${
-                        market === marketItem.value 
-                          ? 'border-blue-500 bg-blue-500/10' 
+                      className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border cursor-pointer transition-all hover:border-blue-500/50 ${
+                        market === marketItem.value
+                          ? 'border-blue-500 bg-blue-500/10'
                           : 'border-gray-700 bg-gray-900/50'
                       }`}
                       onClick={() => setMarket(marketItem.value)}
                     >
-                      <Icon className={`w-5 h-5 ${
+                      <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${
                         market === marketItem.value ? 'text-blue-400' : 'text-gray-400'
                       }`} />
-                      <div>
-                        <div className="font-medium">{marketItem.label}</div>
-                        <div className="text-xs text-gray-400">{marketItem.desc}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm">{marketItem.label}</div>
+                        <div className="text-xs text-gray-400 truncate">{marketItem.desc}</div>
                       </div>
-                      <div className={`ml-auto w-3 h-3 rounded-full ${
+                      <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${
                         market === marketItem.value ? 'bg-blue-500' : 'bg-gray-700'
                       }`} />
                     </div>
@@ -274,9 +252,9 @@ function SearchPage() {
 
             {/* Таймфрейм */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
                 <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
+                  <Clock className="w-3 h-3 sm:w-4 sm:h-4" />
                   {t("signals.timeframe")}
                 </div>
               </label>
@@ -284,16 +262,16 @@ function SearchPage() {
                 {timeframes.map((tf) => (
                   <div
                     key={tf.value}
-                    className={`p-3 rounded-lg border cursor-pointer transition-all hover:border-purple-500/50 ${
-                      timeframe === tf.value 
-                        ? 'border-purple-500 bg-purple-500/10' 
+                    className={`p-2 sm:p-3 rounded-lg border cursor-pointer transition-all hover:border-purple-500/50 ${
+                      timeframe === tf.value
+                        ? 'border-purple-500 bg-purple-500/10'
                         : 'border-gray-700 bg-gray-900/50'
                     }`}
                     onClick={() => setTimeframe(tf.value)}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="font-medium">{tf.label}</div>
-                      <div className={`w-3 h-3 rounded-full ${
+                      <div className="font-medium text-sm">{tf.label}</div>
+                      <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${
                         timeframe === tf.value ? 'bg-purple-500' : 'bg-gray-700'
                       }`} />
                     </div>
@@ -305,9 +283,9 @@ function SearchPage() {
 
             {/* Тип AI */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
                 <div className="flex items-center gap-2">
-                  <Brain className="w-4 h-4" />
+                  <Brain className="w-3 h-3 sm:w-4 sm:h-4" />
                   {t("signals.aiType")}
                 </div>
               </label>
@@ -317,21 +295,21 @@ function SearchPage() {
                   return (
                     <div
                       key={ai.value}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all hover:border-green-500/50 ${
-                        aiType === ai.value 
-                          ? 'border-green-500 bg-green-500/10' 
+                      className={`flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border cursor-pointer transition-all hover:border-green-500/50 ${
+                        aiType === ai.value
+                          ? 'border-green-500 bg-green-500/10'
                           : 'border-gray-700 bg-gray-900/50'
                       }`}
                       onClick={() => setAiType(ai.value)}
                     >
-                      <Icon className={`w-5 h-5 ${
+                      <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${
                         aiType === ai.value ? 'text-green-400' : 'text-gray-400'
                       }`} />
-                      <div className="flex-1">
-                        <div className="font-medium">{ai.label}</div>
-                        <div className="text-xs text-gray-400">{ai.desc}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm">{ai.label}</div>
+                        <div className="text-xs text-gray-400 truncate">{ai.desc}</div>
                       </div>
-                      <div className={`w-3 h-3 rounded-full ${
+                      <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${
                         aiType === ai.value ? 'bg-green-500' : 'bg-gray-700'
                       }`} />
                     </div>
@@ -342,17 +320,17 @@ function SearchPage() {
           </div>
 
           {/* Информация о выбранных параметрах */}
-          <div className="mb-6 p-4 bg-gray-900/30 rounded-lg border border-gray-700">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="text-center md:text-left">
-                <div className="text-sm text-gray-400">{t("signals.selectedParams")}</div>
-                <div className="font-semibold">
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-900/30 rounded-lg border border-gray-700">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+              <div className="text-center sm:text-left">
+                <div className="text-xs sm:text-sm text-gray-400">{t("signals.selectedParams")}</div>
+                <div className="font-semibold text-sm sm:text-base">
                   {markets.find(m => m.value === market)?.label} •
                   {timeframes.find(t => t.value === timeframe)?.label} •
                   {aiTypes.find(a => a.value === aiType)?.label}
                 </div>
               </div>
-              <div className="text-sm text-gray-400">
+              <div className="text-xs sm:text-sm text-gray-400">
                 {t("signals.analysisTime")}:
                 <span className="ml-2 font-semibold text-blue-400">
                   {aiTypes.find(a => a.value === aiType)?.desc.match(/\((\d+)/)?.[1] || '10'} {t("common.minutes")}
@@ -367,16 +345,16 @@ function SearchPage() {
               onClick={handleSearch}
               disabled={isLoading || (user?.role !== 'admin' && signalsUsed >= signalsLimit)}
               size="lg"
-              className={`bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-12 py-6 text-lg font-semibold rounded-xl transition-all hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed`}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-8 sm:px-12 py-4 sm:py-6 text-base sm:text-lg font-semibold rounded-xl transition-all hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed w-full sm:w-auto"
             >
               {isLoading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-2"></div>
-                  {t("signals.analyzing")}
+                  <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-t-2 border-b-2 border-white mr-2"></div>
+                  <span className="text-sm sm:text-base">{t("signals.analyzing")}</span>
                 </>
               ) : (
                 <>
-                  <Search className="w-5 h-5 mr-2" />
+                  <Search className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                   {user?.role !== 'admin' && signalsUsed >= signalsLimit
                     ? t("signals.limitExhausted")
                     : t("signals.findSignal")}
@@ -384,7 +362,7 @@ function SearchPage() {
               )}
             </Button>
             {user?.role !== 'admin' && signalsUsed >= signalsLimit && (
-              <p className="mt-3 text-sm text-yellow-400">
+              <p className="mt-3 text-xs sm:text-sm text-yellow-400 px-2">
                 ⚠️ {t("signals.limitExhaustedDesc")}
               </p>
             )}
@@ -404,14 +382,14 @@ function SearchPage() {
           </div>
         )}
 
-        {/* Остальной контент (без изменений) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-6">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <BarChart className="w-5 h-5 text-green-400" />
+        {/* Остальной контент */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-4 sm:p-6">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 flex items-center gap-2">
+              <BarChart className="w-4 h-4 sm:w-5 sm:h-5 text-green-400" />
               {t("signals.market")}
             </h3>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">
               {t("signals.marketDesc")}
             </p>
             <div className="text-xs text-green-400">• {t("signals.marketFeature1")}</div>
@@ -419,12 +397,12 @@ function SearchPage() {
             <div className="text-xs text-green-400">• {t("signals.marketFeature3")}</div>
           </div>
 
-          <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-6">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-purple-400" />
+          <div className="bg-gray-800/30 border border-gray-700 rounded-xl p-4 sm:p-6">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 flex items-center gap-2">
+              <Cpu className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
               {t("signals.demo")}
             </h3>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">
               {t("signals.demoDesc")}
             </p>
             <div className="text-xs text-purple-400">• {t("signals.demoFeature1")}</div>
@@ -434,11 +412,11 @@ function SearchPage() {
         </div>
 
         {/* Информация о процессе */}
-        <div className="mt-8 p-6 bg-blue-900/10 border border-blue-700 rounded-xl">
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-blue-300">
+        <div className="mt-6 sm:mt-8 p-4 sm:p-6 bg-blue-900/10 border border-blue-700 rounded-xl">
+          <h3 className="text-base sm:text-lg font-semibold mb-3 flex items-center gap-2 text-blue-300">
             🔄 {t("signals.howItWorks")}
           </h3>
-          <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-300">
+          <ol className="list-decimal pl-4 sm:pl-5 space-y-2 text-xs sm:text-sm text-gray-300">
             <li>{t("signals.step1")}</li>
             <li>{t("signals.step2")}</li>
             <li>{t("signals.step3")}</li>
@@ -448,11 +426,11 @@ function SearchPage() {
         </div>
 
         {/* Статистика */}
-        <div className="mt-12 text-center text-gray-400">
-          <p className="text-sm">
+        <div className="mt-8 sm:mt-12 text-center text-gray-400">
+          <p className="text-xs sm:text-sm px-2">
             {t("signals.aiAnalysisDesc")}
           </p>
-          <div className="flex flex-wrap justify-center gap-6 mt-6 text-sm">
+          <div className="flex flex-wrap justify-center gap-4 sm:gap-6 mt-4 sm:mt-6 text-xs sm:text-sm">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               <span>{t("signals.accuracy")}</span>
