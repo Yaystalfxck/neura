@@ -21,136 +21,59 @@ from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
     from BinaryOptionsToolsV2 import PocketOptionAsync
+    from BinaryOptionsToolsV2.config import Config
     USE_BOT_V2 = True
 except ImportError:
     USE_BOT_V2 = False
     from app.pocketoptionapi_async.client import AsyncPocketOptionClient
+    Config = None
 
 settings = get_settings()
 
 # ============================================================
-# ГЛОБАЛЬНЫЙ ПУЛ ПОДКЛЮЧЕНИЙ (Connection Pool)
+# ВСТРОЕННЫЙ RECONNECT MECHANISM (BinaryOptionsToolsV2)
 # ============================================================
-# Чтобы не спамить подключениями при множестве пользователей,
-# мы используем ОДНО общее соединение, которое переиспользуется.
+# Библиотека автоматически:
+# - Переподключается при разрыве соединения
+# - Ждет reconnect_time (5 сек) между попытками
+# - Пробует до max_allowed_loops (100) раз
+# - Использует fallback URLs если основной недоступен
 
-_global_ws_client = None
-_global_ws_last_active = 0
-_global_ws_lock = asyncio.Lock()
-_global_keepalive_task = None
 
-async def _keepalive_loop():
+async def get_pocketoption_client():
     """
-    Фоновая задача для поддержания WebSocket соединения.
-    Отправляет ping каждые 25 секунд чтобы PocketOption не разорвал соединение.
+    Создает клиент BinaryOptionsToolsV2 с встроенным reconnect.
+    Клиент автоматически переподключается при разрыве.
     """
-    global _global_ws_client, _global_ws_last_active
-    
-    print("🔄 Keepalive цикл запущен (ping каждые 25 сек)...")
-    
-    try:
-        while True:
-            await asyncio.sleep(25)  # Отправляем ping каждые 25 секунд
-            
-            async with _global_ws_lock:
-                # Проверяем есть ли активный клиент
-                if _global_ws_client is None:
-                    print("⚠️ Keepalive: клиент отсутствует, останавливаем")
-                    break
-                
-                # Проверяем не устарело ли соединение (> 5 мин неактивности)
-                now = time.time()
-                if (now - _global_ws_last_active) >= 300:
-                    print("♻️ Keepalive: соединение устарело, закрываем...")
-                    try:
-                        await _global_ws_client.shutdown()  # ПОЛНОЕ закрытие
-                    except:
-                        pass
-                    _global_ws_client = None
-                    break
-                
-                # Отправляем ping для поддержания соединения
-                try:
-                    # BinaryOptionsToolsV2 internally handles ping/pong
-                    # Но мы можем вызвать get_candles для проверки соединения
-                    # или просто ничего не делать - библиотека сама поддерживает
-                    print("💓 Keepalive: соединение активно")
-                except Exception as e:
-                    print(f"⚠️ Keepalive ошибка: {e}")
-                    
-    except asyncio.CancelledError:
-        print("🛑 Keepalive цикл остановлен")
-    except Exception as e:
-        print(f"❌ Keepalive критическая ошибка: {e}")
+    ssid = settings.POCKETOPTION_SESSION_TOKEN
+    is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
 
+    if USE_BOT_V2:
+        # Встроенная конфигурация с автоматическим reconnect
+        config = Config(
+            reconnect_time=5,                    # 5 сек между попытками
+            max_allowed_loops=100,               # макс. 100 попыток
+            connection_initialization_timeout_secs=30,
+            timeout_secs=30,
+            urls=[
+                "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket",
+                "wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket"
+            ]
+        )
+        client = PocketOptionAsync(ssid=ssid, config=config)
+    else:
+        client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
 
-async def get_pooled_ws_client():
-    """
-    Возвращает активный WebSocket клиент.
-    Если клиента нет или он устарел (> 5 мин неактивности) -> пересоздает.
-    """
-    global _global_ws_client, _global_ws_last_active, _global_keepalive_task
+    await client.connect()
 
-    async with _global_ws_lock:
-        now = time.time()
-        # Если клиент жив и активен менее 5 минут назад - используем его
-        if _global_ws_client is not None and (now - _global_ws_last_active) < 300:
-            return _global_ws_client
+    if USE_BOT_V2:
+        try:
+            await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки активов: {e}")
+            await asyncio.sleep(2)
 
-        # Если клиент старый - закрываем ПОЛНОСТЬЮ
-        if _global_ws_client is not None:
-            try:
-                print("♻️ Старое соединение устарело, закрываем...")
-                await _global_ws_client.shutdown()  # ← ИСПОЛЬЗУЕМ shutdown() вместо disconnect()
-            except:
-                pass
-            _global_ws_client = None
-
-            # Останавливаем старую keepalive задачу
-            if _global_keepalive_task and not _global_keepalive_task.done():
-                _global_keepalive_task.cancel()
-                try:
-                    await _global_keepalive_task
-                except asyncio.CancelledError:
-                    pass
-
-        # Создаем новое
-        ssid = settings.POCKETOPTION_SESSION_TOKEN
-        is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
-        print("🔌 Создание нового общего соединения с PO...")
-
-        if USE_BOT_V2:
-            _global_ws_client = PocketOptionAsync(ssid=ssid)
-        else:
-            _global_ws_client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
-
-        # Подключаемся
-        await _global_ws_client.connect()
-        
-        # ВАЖНО: Ждем загрузки активов перед использованием!
-        # BinaryOptionsToolsV2 требует инициализации каналов
-        if USE_BOT_V2:
-            try:
-                print("⏳ Ожидание загрузки активов...")
-                await asyncio.wait_for(
-                    _global_ws_client.wait_for_assets(timeout=30.0),
-                    timeout=35.0
-                )
-                print("✅ Активы загружены")
-            except Exception as asset_err:
-                print(f"⚠️ Ошибка загрузки активов: {asset_err}")
-                # Пробуем продолжить - иногда работает без ожидания
-                await asyncio.sleep(3)
-        
-        _global_ws_last_active = time.time()
-        print("✅ Новое соединение создано и готово к работе.")
-
-        # Запускаем keepalive цикл для нового соединения
-        if _global_keepalive_task is None or _global_keepalive_task.done():
-            _global_keepalive_task = asyncio.create_task(_keepalive_loop())
-            print("🔄 Keepalive цикл запущен")
-
-        return _global_ws_client
+    return client
 
 # ML генератор (singleton)
 _ml_generator = None
@@ -292,32 +215,7 @@ _po_pool = POConnectionPool()
 
 async def close_all_po_connections():
     """Закрыть все соединения (при shutdown)"""
-    global _global_ws_client, _global_keepalive_task
-    
-    print("🔌 Закрытие глобального WebSocket пула...")
-    
-    # Останавливаем keepalive задачу
-    if _global_keepalive_task and not _global_keepalive_task.done():
-        print("🛑 Остановка keepalive цикла...")
-        _global_keepalive_task.cancel()
-        try:
-            await _global_keepalive_task
-        except asyncio.CancelledError:
-            pass
-        _global_keepalive_task = None
-    
-    # Закрываем глобальное соединение из пула
-    if _global_ws_client is not None:
-        try:
-            print("♻️ Закрытие глобального WebSocket соединения...")
-            await _global_ws_client.shutdown()  # ← ПОЛНОЕ закрытие через shutdown()
-            _global_ws_client = None
-            print("✅ Глобальное WebSocket соединение закрыто")
-        except Exception as e:
-            print(f"⚠️ Ошибка при закрытии: {e}")
-    
-    # BinaryOptionsToolsV2 POConnectionPool не держит постоянных соединений
-    # Каждое соединение закрывается после использования
+    print("🔌 Закрытие PO соединений...")
     print("✅ PO connections cleanup complete")
 
 
@@ -409,9 +307,9 @@ async def get_signal(
 
         print(f"✅ Лимиты: {used_today}/{daily_limit if current_user.role != 'admin' else '∞'} использовано")
 
-        # === ГЕНЕРАЦИЯ СИГНАЛА (BinaryOptionsToolsV2 с Real-time данными) ===
+        # === ГЕНЕРАЦИЯ СИГНАЛА (BinaryOptionsToolsV2 с встроенным reconnect) ===
         print(f"\n🚀 Начинаем генерацию сигнала...")
-        print(f"📡 Используем BinaryOptionsToolsV2 для real-time данных")
+        print(f"📡 BinaryOptionsToolsV2 с автоматическим reconnect")
 
         analyzed_candidates = []
 
@@ -427,25 +325,10 @@ async def get_signal(
 
         print(f"📊 Начинаем сканирование {len(currency_pairs)} активов...")
 
-        # Создаем ОДИН клиент для всех активов (BinaryOptionsToolsV2 поддерживает это!)
-        ssid = settings.POCKETOPTION_SESSION_TOKEN
-        is_demo_mode = '"isDemo":1' in ssid or '"isDemo": 1' in ssid
-
-        if USE_BOT_V2:
-            client = PocketOptionAsync(ssid=ssid)
-        else:
-            client = AsyncPocketOptionClient(ssid=ssid, is_demo=is_demo_mode, enable_logging=False)
+        # Создаем клиент с встроенным reconnect
+        client = await get_pocketoption_client()
 
         try:
-            # Подключаемся
-            print(f"🔌 Подключение к PocketOption...")
-            await client.connect()
-
-            if USE_BOT_V2:
-                print(f"⏳ Ожидание активов...")
-                await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
-                print(f"✅ Активы загружены!")
-
             # Анализируем каждый актив
             failed_assets = 0
             max_failed = 5
@@ -454,7 +337,7 @@ async def get_signal(
                 try:
                     print(f"\n📈 Анализ {asset['name']}...")
 
-                    # Получаем свечи (BinaryOptionsToolsV2 get_candles)
+                    # Получаем свечи (встроенный reconnect автоматически работает)
                     hist_candles = await client.get_candles(asset['id'], 60, 10000)
 
                     if not hist_candles or len(hist_candles) < 20:
@@ -512,38 +395,42 @@ async def get_signal(
 
                     # === Анализ уровней поддержки/сопротивления ===
                     sr_levels = calculate_support_resistance_levels(clean_candles)
-                    
+
                     # Корректируем уверенность на основе уровней
                     sr_adjustment = 0
-                    
-                    if sr_levels['nearest_support'] and sr_levels['nearest_resistance']:
+
+                    if sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
                         dist_to_support = sr_levels['nearest_support']['distance_pct']
                         dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
                         support_strength = sr_levels['nearest_support']['strength']
                         resistance_strength = sr_levels['nearest_resistance']['strength']
-                        
+
                         # Если цена близко к сильной поддержке → BUY сигнал сильнее
                         if dist_to_support < 0.5 and support_strength > 0.5:
-                            sr_adjustment += 5  # +5% уверенности для BUY
+                            sr_adjustment += 5
                             print(f"   📊 Цена близко к поддержке ({dist_to_support:.2f}%, сила {support_strength:.2f})")
-                        
+
                         # Если цена близко к сильному сопротивлению → SELL сигнал сильнее
                         if dist_to_resistance < 0.5 and resistance_strength > 0.5:
-                            sr_adjustment += 5  # +5% уверенности для SELL
+                            sr_adjustment += 5
                             print(f"   📊 Цена близко к сопротивлению ({dist_to_resistance:.2f}%, сила {resistance_strength:.2f})")
-                        
+
                         # Если цена между уровнями - нейтральная зона
                         if dist_to_support > 1.0 and dist_to_resistance > 1.0:
-                            sr_adjustment -= 3  # -3% уверенности
+                            sr_adjustment -= 3
                             print(f"   📊 Цена в нейтральной зоне")
-                    
+
+                    # Получаем уверенность из сигнала
+                    conf_str = signal.get('confidence', '50%') if signal else '50%'
+                    conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+
                     # Применяем корректировку
-                    if sr_adjustment != 0:
+                    if sr_adjustment != 0 and signal:
                         conf = max(50, min(95, conf + sr_adjustment))
                         signal['confidence'] = f"{conf:.0f}%"
                         signal['support_resistance'] = {
-                            'nearest_support': sr_levels['nearest_support']['price'] if sr_levels['nearest_support'] else None,
-                            'nearest_resistance': sr_levels['nearest_resistance']['price'] if sr_levels['nearest_resistance'] else None,
+                            'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
+                            'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
                             'adjustment': sr_adjustment
                         }
 
@@ -565,6 +452,16 @@ async def get_signal(
                 except Exception as e:
                     failed_assets += 1
                     print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
+
+                    # Используем встроенный reconnect
+                    if USE_BOT_V2:
+                        print(f"   🔄 Пробуем reconnect...")
+                        try:
+                            await client.reconnect()
+                            await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
+                            print(f"   ✅ Reconnect успешен")
+                        except Exception as reconnect_err:
+                            print(f"   ❌ Reconnect не удался: {reconnect_err}")
 
                     if failed_assets >= max_failed:
                         print(f"   ⚠️ Слишком много ошибок ({failed_assets}), останавливаем")
@@ -613,41 +510,42 @@ async def get_signal(
         print(f"\n💰 Получение real-time цены...")
         realtime_price = float(signal.get('current_price', 0))
 
-        # Получаем свежие свечи для лучшей пары
-        price_client = None
+        # Создаем клиент для real-time стрима
+        price_client = await get_pocketoption_client()
         try:
-            ssid = settings.POCKETOPTION_SESSION_TOKEN
+            # Подписка на real-time обновления
+            print(f"📡 Real-time стрим {best_asset['id']}...")
+            prices = []
 
-            if USE_BOT_V2:
-                price_client = PocketOptionAsync(ssid=ssid)
-                await price_client.connect()
-                await asyncio.wait_for(price_client.wait_for_assets(timeout=30.0), timeout=35.0)
+            async for candle in await price_client.subscribe_symbol(best_asset['id']):
+                price = candle.get('close', candle.get('price', 0))
+                try:
+                    price = float(price)
+                    prices.append(price)
+                    print(f"   💰 Цена: {price:.5f}")
+                except:
+                    pass
 
-                # Подписка на real-time обновления
-                print(f"📡 Real-time стрим {best_asset['id']}...")
-                prices = []
+                # Ждем 5 секунд для получения real-time цены
+                if len(prices) >= 5:
+                    break
 
-                async for candle in await price_client.subscribe_symbol(best_asset['id']):
-                    price = candle.get('close', candle.get('price', 0))
-                    try:
-                        price = float(price)
-                        prices.append(price)
-                        print(f"   💰 Цена: {price:.5f}")
-                    except:
-                        pass
-
-                    # Ждем 5 секунд для получения real-time цены
-                    if len(prices) >= 5:
-                        break
-
-                if prices:
-                    realtime_price = prices[-1]
-                    print(f"   ✅ Real-time цена: {realtime_price:.5f}")
-                else:
-                    print(f"   ⚠️ Стрим не получен, используем историческую цену")
+            if prices:
+                realtime_price = prices[-1]
+                print(f"   ✅ Real-time цена: {realtime_price:.5f}")
+            else:
+                print(f"   ⚠️ Стрим не получен, используем историческую цену")
 
         except Exception as e:
             print(f"   ⚠️ Ошибка real-time: {e}")
+            # Пробуем reconnect
+            if USE_BOT_V2:
+                try:
+                    print(f"   🔄 Reconnect...")
+                    await price_client.reconnect()
+                    await asyncio.wait_for(price_client.wait_for_assets(timeout=30.0), timeout=35.0)
+                except:
+                    pass
         finally:
             if price_client is not None:
                 try:
