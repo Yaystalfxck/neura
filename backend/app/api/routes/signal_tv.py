@@ -542,26 +542,26 @@ async def get_signal_tradingview(
 
 
 async def get_demo_signal(current_user: User, db: AsyncSession, timeframe: str, strategy_type: str):
-    """Fallback на демо-данные с полным анализом"""
+    """Демо сигнал с полным анализом (ML + стратегии + S/R)"""
     import math
     import time
-    
+
     # Генерируем "фейковые" свечи на основе текущего времени
     # Это делает сигнал детерминированным (не случайным) для конкретного момента
     now_ts = int(time.time())
     base_price = 1.0850
-    
+
     # Создаем фейковые свечи
     demo_candles = []
-    for i in range(100):
-        ts = now_ts - (100 - i) * 60
+    for i in range(150):
+        ts = now_ts - (150 - i) * 60
         # Детерминированная "цена" на основе времени
         price_variation = math.sin(i / 10) * 0.005 + math.cos(i / 5) * 0.003
         open_p = base_price + price_variation
         close_p = open_p + (math.sin(i / 3) * 0.002)
         high_p = max(open_p, close_p) + 0.001
         low_p = min(open_p, close_p) - 0.001
-        
+
         demo_candles.append({
             'time': ts,
             'open': open_p,
@@ -569,16 +569,16 @@ async def get_demo_signal(current_user: User, db: AsyncSession, timeframe: str, 
             'low': low_p,
             'close': close_p
         })
-    
-    # Анализируем фейковые свечи через ML или индикаторы
+
     signal = None
+
+    # 1. Попробуем ML
     if strategy_type.lower() in ['ml', 'neural_ai', 'neural']:
         try:
             ml_gen = get_ml_generator()
-            # Обучаем и предсказываем
             ml_gen.train(demo_candles)
             ml_result = ml_gen.predict(demo_candles)
-            if ml_result and ml_result.get('confidence', 0) > 0.55:
+            if ml_result and ml_result.get('confidence', 0) > 0.50:
                 direction = ml_result.get('direction', 'call')
                 confidence_pct = ml_result.get('confidence', 0) * 100
                 signal = {
@@ -595,18 +595,67 @@ async def get_demo_signal(current_user: User, db: AsyncSession, timeframe: str, 
                     "db_strategy": "MACHINE_LEARNING",
                     "data_source": "demo_ml"
                 }
-        except:
-            pass
-            
+        except Exception as e:
+            print(f"⚠️ Демо ML ошибка: {e}")
+
+    # 2. Комбинированный анализ
+    combined = combined_strategy_analysis(demo_candles)
+    if combined['signal'] and combined['confidence'] > 50:
+        combined_conf = combined['confidence']
+        current_conf = float(signal.get('confidence', '0').replace('%', '')) if signal else 0
+        
+        if combined_conf > current_conf:
+            signal = {
+                "signal_type": combined['signal'],
+                "strength": "strong" if combined_conf > 75 else "medium",
+                "confidence": f"{combined_conf:.0f}%",
+                "current_price": demo_candles[-1]['close'],
+                "expiry_minutes": 5,
+                "pair_name": "EUR/USD",
+                "trend": combined['strategies'].get('trend', {}).get('signal', 'neutral'),
+                "rsi": 50,
+                "pattern_detected": "COMBINED_STRATEGIES_DEMO",
+                "payout": "85%",
+                "db_strategy": "INDICATORS",
+                "data_source": "demo_combined",
+                "strategies_used": list(combined['strategies'].keys())
+            }
+
+    # 3. Уровни поддержки/сопротивления
+    sr_levels = calculate_support_resistance_levels(demo_candles)
+    sr_adjustment = 0
+    if signal and sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
+        dist_to_support = sr_levels['nearest_support']['distance_pct']
+        dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
+        support_strength = sr_levels['nearest_support']['strength']
+        resistance_strength = sr_levels['nearest_resistance']['strength']
+
+        if dist_to_support < 0.5 and support_strength > 0.5:
+            sr_adjustment += 5
+        elif dist_to_resistance < 0.5 and resistance_strength > 0.5:
+            sr_adjustment += 5
+        elif dist_to_support > 1.0 and dist_to_resistance > 1.0:
+            sr_adjustment -= 3
+
+        if sr_adjustment != 0:
+            conf_str = signal.get('confidence', '50%')
+            conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
+            conf = max(50, min(95, conf + sr_adjustment))
+            signal['confidence'] = f"{conf:.0f}%"
+            signal['support_resistance'] = {
+                'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
+                'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
+                'adjustment': sr_adjustment
+            }
+
+    # 4. Фоллбэк на индикаторы
     if signal is None:
-        # Используем индикаторы на фейковых свечах
         from app.po_strategies_advanced import advanced_signal_strategy
         demo_asset = {"name": "EUR/USD", "payout": 85}
         signal = advanced_signal_strategy(demo_candles, demo_asset, "indicators")
         if signal:
             signal['data_source'] = 'demo_indicators'
         else:
-            # Фоллбэк если совсем ничего не сработало
             signal = {
                 "signal_type": "call",
                 "strength": "medium",
@@ -615,17 +664,18 @@ async def get_demo_signal(current_user: User, db: AsyncSession, timeframe: str, 
                 "expiry_minutes": 5,
                 "pair_name": "EUR/USD",
                 "payout": "85%",
-                "db_strategy": "DEMO",
+                "db_strategy": "INDICATORS",
                 "data_source": "demo_fallback"
             }
-    
+
     return {
         "success": True,
         "signal": format_tv_signal_response(signal, current_user.balance),
         "balance": current_user.balance,
         "market_data_summary": {
             "assets_analyzed": 1,
-            "data_source": "demo_with_analysis"
+            "data_source": "demo_with_full_analysis",
+            "strategies": ["ML", "Combined Strategies", "Support/Resistance", "Indicators"]
         }
     }
 
