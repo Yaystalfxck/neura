@@ -87,11 +87,12 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
 
     const animate = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      time += 0.01;
+      time += 0.016;
 
-      // Сетка
-      ctx.strokeStyle = gridColor;
-      ctx.lineWidth = 1;
+      // Сетка с пульсацией
+      const gridOpacity = 0.03 + 0.01 * Math.sin(time);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${gridOpacity})`;
+      ctx.lineWidth = 0.5;
       for (let x = 0; x < canvas.width; x += 60) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -105,8 +106,9 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
         ctx.stroke();
       }
 
-      // Свечи
-      candleData.forEach((candle, i) => {
+      // Свечи с анимацией появления
+      const visibleCount = Math.min(candleData.length, Math.floor(time * 15) + 20);
+      candleData.slice(0, visibleCount).forEach((candle, i) => {
         const isBullish = candle.close > candle.open;
         const color = isBullish ? bullColor : bearColor;
         
@@ -116,91 +118,104 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
         const highY = scaleY(candle.high);
         const lowY = scaleY(candle.low);
 
-        // Фитиль
-        ctx.strokeStyle = `${color} 0.3)`;
+        // Фитиль с пульсацией
+        const wickOpacity = 0.3 + 0.1 * Math.sin(time * 2 + i * 0.1);
+        ctx.strokeStyle = `${color} ${wickOpacity})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x + candleWidth / 2, highY);
         ctx.lineTo(x + candleWidth / 2, lowY);
         ctx.stroke();
 
-        // Тело
+        // Тело свечи с анимацией
         const bodyTop = Math.min(openY, closeY);
         const bodyHeight = Math.max(Math.abs(closeY - openY), 1);
         
-        ctx.fillStyle = `${color} 0.5)`;
+        const bodyOpacity = 0.4 + 0.1 * Math.sin(time * 1.5 + i * 0.05);
+        ctx.fillStyle = `${color} ${bodyOpacity})`;
         ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
       });
 
-      // Линия тренда с анимацией
-      ctx.strokeStyle = lineColor;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = lineColor;
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
+      // Линия тренда с анимацией и свечением
+      if (visibleCount > 1) {
+        // Свечение
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = lineColor;
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
 
-      const visibleCandles = Math.min(candleData.length, Math.floor(time * 20) + 10);
-      for (let i = 0; i < visibleCandles; i++) {
-        const x = candleData[i].x + candleWidth / 2;
-        const y = scaleY(candleData[i].close);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+        for (let i = 0; i < visibleCount; i++) {
+          const x = candleData[i].x + candleWidth / 2;
+          const y = scaleY(candleData[i].close);
+          if (i === 0) ctx.moveTo(x, y);
+          else {
+            // Плавная кривая
+            const prevX = candleData[i-1].x + candleWidth / 2;
+            const prevY = scaleY(candleData[i-1].close);
+            const cpx = (prevX + x) / 2;
+            ctx.quadraticCurveTo(prevX, prevY, cpx, (prevY + y) / 2);
+          }
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
 
-      // Градиент под линией
-      if (visibleCandles > 1) {
+        // Основная линия
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < visibleCount; i++) {
+          const x = candleData[i].x + candleWidth / 2;
+          const y = scaleY(candleData[i].close);
+          if (i === 0) ctx.moveTo(x, y);
+          else {
+            const prevX = candleData[i-1].x + candleWidth / 2;
+            const prevY = scaleY(candleData[i-1].close);
+            const cpx = (prevX + x) / 2;
+            ctx.quadraticCurveTo(prevX, prevY, cpx, (prevY + y) / 2);
+          }
+        }
+        ctx.stroke();
+
+        // Градиент под линией
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        const alpha = isBuy ? 'rgba(34, 197, 94, 0.05)' : isSell ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)';
+        const alpha = isBuy ? 'rgba(34, 197, 94, 0.08)' : isSell ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)';
         gradient.addColorStop(0, alpha);
         gradient.addColorStop(1, 'transparent');
         
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.moveTo(candleData[0].x + candleWidth / 2, scaleY(candleData[0].close));
-        for (let i = 1; i < visibleCandles; i++) {
-          ctx.lineTo(candleData[i].x + candleWidth / 2, scaleY(candleData[i].close));
+        for (let i = 1; i < visibleCount; i++) {
+          const x = candleData[i].x + candleWidth / 2;
+          const y = scaleY(candleData[i].close);
+          const prevX = candleData[i-1].x + candleWidth / 2;
+          const prevY = scaleY(candleData[i-1].close);
+          const cpx = (prevX + x) / 2;
+          ctx.quadraticCurveTo(prevX, prevY, cpx, (prevY + y) / 2);
         }
-        ctx.lineTo(candleData[visibleCandles - 1].x + candleWidth / 2, canvas.height);
+        ctx.lineTo(candleData[visibleCount - 1].x + candleWidth / 2, canvas.height);
         ctx.lineTo(candleData[0].x + candleWidth / 2, canvas.height);
         ctx.closePath();
         ctx.fill();
-      }
 
-      // Частицы
-      particlesRef.current.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-
-        const pulseOpacity = p.opacity * (0.5 + 0.5 * Math.sin(time * 2 + p.x));
-        ctx.fillStyle = `rgba(59, 130, 246, ${pulseOpacity})`;
+        // Пульсирующая точка на конце линии
+        const lastX = candleData[visibleCount - 1].x + candleWidth / 2;
+        const lastY = scaleY(candleData[visibleCount - 1].close);
+        const pulseSize = 4 + 2 * Math.sin(time * 3);
+        const pulseOpacity = 0.5 + 0.3 * Math.sin(time * 3);
+        
+        ctx.fillStyle = isBuy ? `rgba(34, 197, 94, ${pulseOpacity})` : isSell ? `rgba(239, 68, 68, ${pulseOpacity})` : `rgba(59, 130, 246, ${pulseOpacity})`;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.arc(lastX, lastY, pulseSize, 0, Math.PI * 2);
         ctx.fill();
-      });
-
-      // Соединительные линии между близкими частицами
-      particlesRef.current.forEach((p1, i) => {
-        particlesRef.current.slice(i + 1).forEach(p2 => {
-          const dx = p1.x - p2.x;
-          const dy = p1.y - p2.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 100) {
-            ctx.strokeStyle = `rgba(59, 130, 246, ${0.1 * (1 - dist / 100)})`;
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
-          }
-        });
-      });
-
-      animationRef.current = requestAnimationFrame(animate);
+        
+        // Внешнее свечение точки
+        ctx.fillStyle = isBuy ? 'rgba(34, 197, 94, 0.2)' : isSell ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+        ctx.beginPath();
+        ctx.arc(lastX, lastY, pulseSize * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     };
 
     animate();
