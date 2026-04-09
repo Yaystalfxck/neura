@@ -17,6 +17,12 @@ from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
 from app.po_strategies_advanced import advanced_signal_strategy, calculate_support_resistance_levels
+from app.po_strategies_enhanced import (
+    detect_candlestick_patterns,
+    analyze_trend_strength,
+    analyze_volume_profile,
+    combined_strategy_analysis
+)
 from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
@@ -428,6 +434,32 @@ async def get_signal(
                         if signal:
                             print(f"   📊 Индикаторы сигнал: {signal.get('signal_type', '?')}")
 
+                    # === Комбинированный анализ стратегий ===
+                    combined = combined_strategy_analysis(clean_candles)
+                    
+                    if combined['signal'] and combined['confidence'] > 50:
+                        print(f"   🎯 Комбинированный анализ: {combined['signal'].upper()} ({combined['confidence']:.0f}%)")
+                        print(f"      Голоса стратегий: {combined.get('votes', {})}")
+                        
+                        # Если комбинированный анализ сильнее ML - используем его
+                        combined_conf = combined['confidence'] / 100
+                        if combined_conf > (float(signal.get('confidence', '0').replace('%', '')) / 100) if signal else 0:
+                            signal = {
+                                "signal_type": combined['signal'],
+                                "strength": "strong" if combined['confidence'] > 75 else "medium",
+                                "confidence": f"{combined['confidence']:.0f}%",
+                                "current_price": clean_candles[-1]['close'],
+                                "expiry_minutes": 5,
+                                "pair_name": asset['name'],
+                                "trend": combined['strategies'].get('trend', {}).get('signal', 'neutral'),
+                                "rsi": 50,
+                                "pattern_detected": "COMBINED_STRATEGIES",
+                                "payout": "85%",
+                                "db_strategy": "COMBINED",
+                                "strategies_used": list(combined['strategies'].keys())
+                            }
+                            print(f"   ✅ Комбинированный сигнал выбран как основной")
+
                     # === Анализ уровней поддержки/сопротивления ===
                     sr_levels = calculate_support_resistance_levels(clean_candles)
 
@@ -480,7 +512,8 @@ async def get_signal(
                             'confidence': conf,
                             'volatility_pct': volatility_pct,
                             'candles_count': len(clean_candles),
-                            'sr_levels': sr_levels
+                            'sr_levels': sr_levels,
+                            'combined_analysis': combined
                         })
                         print(f"   ✅ Кандидат: {conf}% уверенности, волатильность {volatility_pct:.2f}%")
 
