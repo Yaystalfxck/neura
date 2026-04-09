@@ -403,7 +403,7 @@ async def get_signal(
                         ml_gen.train(clean_candles)
                         ml_result = ml_gen.predict(clean_candles)
 
-                        if ml_result and ml_result.get('confidence', 0) > 0.55:
+                        if ml_result and ml_result.get('confidence', 0) > 0.50:
                             signal = {
                                 "signal_type": ml_result.get('direction', 'call'),
                                 "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
@@ -417,7 +417,8 @@ async def get_signal(
                                 "payout": "85%",
                                 "db_strategy": "MACHINE_LEARNING"
                             }
-                            print(f"   🤖 ML сигнал: {signal['signal_type']} ({signal['confidence']})")
+                            direction_emoji = "📈" if signal['signal_type'] == 'call' else "📉"
+                            print(f"   {direction_emoji} ML сигнал: {signal['signal_type'].upper()} ({signal['confidence']})")
                     except Exception as ml_err:
                         print(f"   ⚠️ ML ошибка: {ml_err}")
 
