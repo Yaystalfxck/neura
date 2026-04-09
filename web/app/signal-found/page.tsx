@@ -7,6 +7,7 @@ import {
   ArrowLeft, TrendingUp, TrendingDown, Target, Clock, Globe, BarChart, Cpu, Shield,
   CheckCircle, AlertCircle, History, Star, Copy, Download, Check, Brain
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { useLanguage } from '@/app/contexts/LanguageContext';
 
 export default function SignalFound() {
@@ -197,7 +198,54 @@ function SignalFoundPage() {
   const isBuy = signalData.direction === 'BUY';
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white relative overflow-hidden">
+      {/* Фоновая анимация с найденным сигналом */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {[...Array(15)].map((_, i) => (
+          <motion.div
+            key={i}
+            className={`absolute rounded-full ${isBuy ? 'bg-green-500/10' : 'bg-red-500/10'}`}
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              width: Math.random() * 120 + 40,
+              height: Math.random() * 120 + 40,
+            }}
+            animate={{
+              y: [0, -40, 0],
+              opacity: [0.05, 0.2, 0.05],
+              scale: [1, 1.3, 1],
+            }}
+            transition={{
+              duration: Math.random() * 6 + 4,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+          />
+        ))}
+        
+        {/* Анимированные линии тренда */}
+        <motion.div
+          className="absolute w-full h-px"
+          style={{
+            top: '30%',
+            background: isBuy
+              ? 'linear-gradient(90deg, transparent, rgba(34, 197, 94, 0.3), transparent)'
+              : 'linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.3), transparent)',
+          }}
+          animate={{ x: ['-100%', '100%'] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+        />
+        <motion.div
+          className="absolute w-full h-px"
+          style={{
+            top: '60%',
+            background: 'linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.2), transparent)',
+          }}
+          animate={{ x: ['100%', '-100%'] }}
+          transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
+        />
+      </div>
       {showToast && (
         <div className="fixed top-24 right-4 z-50 animate-in slide-in-from-top-2 fade-in duration-300">
           <div className={`px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 border ${
