@@ -123,7 +123,8 @@ class MLSignalGenerator:
         """Stochastic Oscillator"""
         low_min = df['low'].rolling(period).min()
         high_max = df['high'].rolling(period).max()
-        k = 100 * (df['close'] - low_min) / (high_max - low_min)
+        range_val = (high_max - low_min).replace(0, 1)
+        k = 100 * (df['close'] - low_min) / range_val
         d = k.rolling(3).mean()
         return k, d
 
@@ -147,7 +148,8 @@ class MLSignalGenerator:
         """Williams %R"""
         highest_high = df['high'].rolling(period).max()
         lowest_low = df['low'].rolling(period).min()
-        return -100 * (highest_high - df['close']) / (highest_high - lowest_low)
+        range_val = (highest_high - lowest_low).replace(0, 1)
+        return -100 * (highest_high - df['close']) / range_val
 
     def _calculate_ao(self, df: pd.DataFrame) -> pd.Series:
         """Awesome Oscillator"""
@@ -160,7 +162,7 @@ class MLSignalGenerator:
         std = df['close'].rolling(period).std()
         upper = sma + 2 * std
         lower = sma - 2 * std
-        width = (upper - lower) / sma
+        width = (upper - lower) / sma.replace(0, 1)
         return upper, sma, lower, width
 
     def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
@@ -239,7 +241,7 @@ class MLSignalGenerator:
         features['bb_squeeze'] = (df['bb_width'] < df['bb_width'].rolling(20).mean() * 0.8).astype(int)
 
         # ATR
-        features['atr_relative'] = df['atr_14'] / df['close']
+        features['atr_relative'] = df['atr_14'] / df['close'].replace(0, 1)
         features['atr_increasing'] = (df['atr_14'] > df['atr_14'].shift(1)).astype(int)
 
         # === CANDLE PATTERNS ===
@@ -353,8 +355,8 @@ class MLSignalGenerator:
             self.model_accuracy = accuracy_score(y_test, y_pred)
 
             # Сохраняем информацию о балансе для predict
-            self._call_ratio = class_balance.get(1, 0) / len(y)
-            self._put_ratio = class_balance.get(0, 0) / len(y)
+            self._call_ratio = class_balance.get(1, 0) / len(y) if len(y) > 0 else 0.5
+            self._put_ratio = class_balance.get(0, 0) / len(y) if len(y) > 0 else 0.5
 
             # Feature importance
             if hasattr(self.model, 'feature_importances_'):
