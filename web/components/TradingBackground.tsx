@@ -118,31 +118,31 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
         const highY = scaleY(candle.high);
         const lowY = scaleY(candle.low);
 
-        // Фитиль с пульсацией
-        const wickOpacity = 0.3 + 0.1 * Math.sin(time * 2 + i * 0.1);
+        // Фитиль с пульсацией - более видимый
+        const wickOpacity = 0.5 + 0.2 * Math.sin(time * 2 + i * 0.1);
         ctx.strokeStyle = `${color} ${wickOpacity})`;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(x + candleWidth / 2, highY);
         ctx.lineTo(x + candleWidth / 2, lowY);
         ctx.stroke();
 
-        // Тело свечи с анимацией
+        // Тело свечи с анимацией - более видимое
         const bodyTop = Math.min(openY, closeY);
         const bodyHeight = Math.max(Math.abs(closeY - openY), 1);
         
-        const bodyOpacity = 0.4 + 0.1 * Math.sin(time * 1.5 + i * 0.05);
+        const bodyOpacity = 0.6 + 0.2 * Math.sin(time * 1.5 + i * 0.05);
         ctx.fillStyle = `${color} ${bodyOpacity})`;
         ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
       });
 
-      // Линия тренда с анимацией и свечением
+      // Линия тренда с анимацией и свечением - более видимая
       if (visibleCount > 1) {
-        // Свечение
+        // Свечение - ярче
         ctx.strokeStyle = lineColor;
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 6;
         ctx.shadowColor = lineColor;
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 20;
         ctx.beginPath();
 
         for (let i = 0; i < visibleCount; i++) {
@@ -150,7 +150,6 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
           const y = scaleY(candleData[i].close);
           if (i === 0) ctx.moveTo(x, y);
           else {
-            // Плавная кривая
             const prevX = candleData[i-1].x + candleWidth / 2;
             const prevY = scaleY(candleData[i-1].close);
             const cpx = (prevX + x) / 2;
@@ -160,9 +159,9 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
         ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Основная линия
+        // Основная линия - толще и ярче
         ctx.strokeStyle = lineColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.beginPath();
         for (let i = 0; i < visibleCount; i++) {
           const x = candleData[i].x + candleWidth / 2;
@@ -177,9 +176,9 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
         }
         ctx.stroke();
 
-        // Градиент под линией
+        // Градиент под линией - ярче
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        const alpha = isBuy ? 'rgba(34, 197, 94, 0.08)' : isSell ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)';
+        const alpha = isBuy ? 'rgba(34, 197, 94, 0.12)' : isSell ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)';
         gradient.addColorStop(0, alpha);
         gradient.addColorStop(1, 'transparent');
         
@@ -199,21 +198,21 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
         ctx.closePath();
         ctx.fill();
 
-        // Пульсирующая точка на конце линии
+        // Пульсирующая точка на конце линии - больше и ярче
         const lastX = candleData[visibleCount - 1].x + candleWidth / 2;
         const lastY = scaleY(candleData[visibleCount - 1].close);
-        const pulseSize = 4 + 2 * Math.sin(time * 3);
-        const pulseOpacity = 0.5 + 0.3 * Math.sin(time * 3);
+        const pulseSize = 6 + 3 * Math.sin(time * 3);
+        const pulseOpacity = 0.7 + 0.3 * Math.sin(time * 3);
         
         ctx.fillStyle = isBuy ? `rgba(34, 197, 94, ${pulseOpacity})` : isSell ? `rgba(239, 68, 68, ${pulseOpacity})` : `rgba(59, 130, 246, ${pulseOpacity})`;
         ctx.beginPath();
         ctx.arc(lastX, lastY, pulseSize, 0, Math.PI * 2);
         ctx.fill();
         
-        // Внешнее свечение точки
-        ctx.fillStyle = isBuy ? 'rgba(34, 197, 94, 0.2)' : isSell ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+        // Внешнее свечение точки - больше
+        ctx.fillStyle = isBuy ? 'rgba(34, 197, 94, 0.3)' : isSell ? 'rgba(239, 68, 68, 0.3)' : 'rgba(59, 130, 246, 0.3)';
         ctx.beginPath();
-        ctx.arc(lastX, lastY, pulseSize * 2, 0, Math.PI * 2);
+        ctx.arc(lastX, lastY, pulseSize * 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
     };
@@ -228,19 +227,20 @@ export const TradingBackground: React.FC<TradingBackgroundProps> = ({
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {/* Canvas фон */}
+      {/* Canvas фон - более видимый */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full opacity-40"
+        className="absolute inset-0 w-full h-full"
+        style={{ opacity: 0.6 }}
       />
 
-      {/* Градиентный оверлей для читаемости */}
+      {/* Градиентный оверлей для читаемости - более прозрачный */}
       <div
         className="absolute inset-0"
         style={{
           background: variant === 'search'
-            ? 'radial-gradient(ellipse at center, rgba(17, 24, 39, 0.7) 0%, rgba(17, 24, 39, 0.95) 100%)'
-            : 'radial-gradient(ellipse at center, rgba(17, 24, 39, 0.6) 0%, rgba(17, 24, 39, 0.95) 100%)',
+            ? 'radial-gradient(ellipse at center, rgba(17, 24, 39, 0.5) 0%, rgba(17, 24, 39, 0.8) 100%)'
+            : 'radial-gradient(ellipse at center, rgba(17, 24, 39, 0.4) 0%, rgba(17, 24, 39, 0.75) 100%)',
         }}
       />
 
