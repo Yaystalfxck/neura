@@ -16,7 +16,7 @@ from app.balance_utils import get_user_balance
 from app.po_models import POSignal
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
-from app.po_strategies_advanced import advanced_signal_strategy
+from app.po_strategies_advanced import advanced_signal_strategy, calculate_support_resistance_levels
 from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
@@ -510,11 +510,45 @@ async def get_signal(
                         if signal:
                             print(f"   📊 Индикаторы сигнал: {signal.get('signal_type', '?')}")
 
+                    # === Анализ уровней поддержки/сопротивления ===
+                    sr_levels = calculate_support_resistance_levels(clean_candles)
+                    
+                    # Корректируем уверенность на основе уровней
+                    sr_adjustment = 0
+                    
+                    if sr_levels['nearest_support'] and sr_levels['nearest_resistance']:
+                        dist_to_support = sr_levels['nearest_support']['distance_pct']
+                        dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
+                        support_strength = sr_levels['nearest_support']['strength']
+                        resistance_strength = sr_levels['nearest_resistance']['strength']
+                        
+                        # Если цена близко к сильной поддержке → BUY сигнал сильнее
+                        if dist_to_support < 0.5 and support_strength > 0.5:
+                            sr_adjustment += 5  # +5% уверенности для BUY
+                            print(f"   📊 Цена близко к поддержке ({dist_to_support:.2f}%, сила {support_strength:.2f})")
+                        
+                        # Если цена близко к сильному сопротивлению → SELL сигнал сильнее
+                        if dist_to_resistance < 0.5 and resistance_strength > 0.5:
+                            sr_adjustment += 5  # +5% уверенности для SELL
+                            print(f"   📊 Цена близко к сопротивлению ({dist_to_resistance:.2f}%, сила {resistance_strength:.2f})")
+                        
+                        # Если цена между уровнями - нейтральная зона
+                        if dist_to_support > 1.0 and dist_to_resistance > 1.0:
+                            sr_adjustment -= 3  # -3% уверенности
+                            print(f"   📊 Цена в нейтральной зоне")
+                    
+                    # Применяем корректировку
+                    if sr_adjustment != 0:
+                        conf = max(50, min(95, conf + sr_adjustment))
+                        signal['confidence'] = f"{conf:.0f}%"
+                        signal['support_resistance'] = {
+                            'nearest_support': sr_levels['nearest_support']['price'] if sr_levels['nearest_support'] else None,
+                            'nearest_resistance': sr_levels['nearest_resistance']['price'] if sr_levels['nearest_resistance'] else None,
+                            'adjustment': sr_adjustment
+                        }
+
                     # Добавляем в кандидаты
                     if signal:
-                        conf_str = signal.get('confidence', '50%')
-                        conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-
                         closes = [c['close'] for c in clean_candles[-20:]]
                         volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
 
@@ -523,7 +557,8 @@ async def get_signal(
                             'signal': signal,
                             'confidence': conf,
                             'volatility_pct': volatility_pct,
-                            'candles_count': len(clean_candles)
+                            'candles_count': len(clean_candles),
+                            'sr_levels': sr_levels
                         })
                         print(f"   ✅ Кандидат: {conf}% уверенности, волатильность {volatility_pct:.2f}%")
 
@@ -563,6 +598,15 @@ async def get_signal(
         print(f"   Уверенность: {best_candidate['confidence']}%")
         print(f"   Волатильность: {volatility:.2f}%")
         print(f"   Свечей проанализировано: {best_candidate['candles_count']}")
+        
+        # Показываем уровни поддержки/сопротивления
+        if 'sr_levels' in best_candidate:
+            sr = best_candidate['sr_levels']
+            if sr.get('nearest_support'):
+                print(f"   📊 Ближайшая поддержка: {sr['nearest_support']['price']:.5f} (расст. {sr['nearest_support']['distance_pct']:.2f}%)")
+            if sr.get('nearest_resistance'):
+                print(f"   📊 Ближайшее сопротивление: {sr['nearest_resistance']['price']:.5f} (расст. {sr['nearest_resistance']['distance_pct']:.2f}%)")
+        
         print(f"{'='*60}")
 
         # === ПОЛУЧЕНИЕ REAL-TIME ЦЕНЫ через BinaryOptionsToolsV2 ===

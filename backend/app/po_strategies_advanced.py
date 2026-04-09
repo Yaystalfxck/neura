@@ -357,3 +357,104 @@ def advanced_signal_strategy(
             "signal_strength": strength
         }
     }
+
+
+def calculate_support_resistance_levels(candles: List[Dict], num_levels: int = 3) -> Dict:
+    """
+    Расчет уровней поддержки и сопротивления на основе исторических данных
+    
+    Args:
+        candles: Список свечей с OHLC данными
+        num_levels: Количество уровней для каждого типа
+        
+    Returns:
+        Dict с уровнями поддержки и сопротивления
+    """
+    if not candles or len(candles) < 20:
+        return {
+            'support': [],
+            'resistance': [],
+            'current_price': 0,
+            'nearest_support': None,
+            'nearest_resistance': None,
+            'support_strength': 0,
+            'resistance_strength': 0
+        }
+    
+    # Собираем все high и low
+    lows = [c.get('low', 0) for c in candles if c.get('low')]
+    highs = [c.get('high', 0) for c in candles if c.get('high')]
+    closes = [c.get('close', 0) for c in candles if c.get('close')]
+    
+    if not lows or not highs or not closes:
+        return {
+            'support': [],
+            'resistance': [],
+            'current_price': 0,
+            'nearest_support': None,
+            'nearest_resistance': None
+        }
+    
+    current_price = closes[-1]
+    
+    # Находим уровни поддержки (низкие точки, где цена разворачивалась)
+    support_levels = []
+    resistance_levels = []
+    
+    # Используем оконный метод для нахождения локальных минимумов/максимумов
+    window = 5
+    
+    for i in range(window, len(lows) - window):
+        # Проверяем локальный минимум (поддержка)
+        is_local_min = all(lows[i] <= lows[j] for j in range(i - window, i + window + 1) if j != i)
+        if is_local_min:
+            # Считаем сколько раз цена касалась этого уровня
+            touch_count = sum(1 for low in lows if abs(low - lows[i]) / lows[i] < 0.001)
+            support_levels.append({
+                'price': lows[i],
+                'touches': touch_count,
+                'strength': touch_count / window,  # 0-1
+                'distance_pct': abs(current_price - lows[i]) / current_price * 100
+            })
+        
+        # Проверяем локальный максимум (сопротивление)
+        is_local_max = all(highs[i] >= highs[j] for j in range(i - window, i + window + 1) if j != i)
+        if is_local_max:
+            touch_count = sum(1 for high in highs if abs(high - highs[i]) / highs[i] < 0.001)
+            resistance_levels.append({
+                'price': highs[i],
+                'touches': touch_count,
+                'strength': touch_count / window,
+                'distance_pct': abs(current_price - highs[i]) / current_price * 100
+            })
+    
+    # Сортируем по силе (количеству касаний)
+    support_levels.sort(key=lambda x: x['strength'], reverse=True)
+    resistance_levels.sort(key=lambda x: x['strength'], reverse=True)
+    
+    # Берем top N уровней
+    top_support = support_levels[:num_levels]
+    top_resistance = resistance_levels[:num_levels]
+    
+    # Находим ближайшие уровни
+    nearest_support = None
+    for level in top_support:
+        if level['price'] < current_price:
+            nearest_support = level
+            break
+    
+    nearest_resistance = None
+    for level in top_resistance:
+        if level['price'] > current_price:
+            nearest_resistance = level
+            break
+    
+    return {
+        'support': top_support,
+        'resistance': top_resistance,
+        'current_price': current_price,
+        'nearest_support': nearest_support,
+        'nearest_resistance': nearest_resistance,
+        'support_strength': sum(l['strength'] for l in top_support) / len(top_support) if top_support else 0,
+        'resistance_strength': sum(l['strength'] for l in top_resistance) / len(top_resistance) if top_resistance else 0
+    }

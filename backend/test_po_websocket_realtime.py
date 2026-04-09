@@ -36,10 +36,15 @@ async def test_realtime_price(is_demo: bool = True):
     try:
         print("\n🔌 Connecting...")
         client = PocketOptionAsync(ssid=session_token)
-        
+
         await client.connect()
         print("✅ Connected!")
-        
+
+        # ВАЖНО: Ждем загрузки активов перед любыми запросами!
+        print("⏳ Waiting for assets...")
+        await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
+        print("✅ Assets loaded!")
+
         # Баланс
         print("\n💰 Balance...")
         try:
