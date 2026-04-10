@@ -215,7 +215,7 @@ async def get_partner_stats(
                 "commission_rate": commission_rate
             }
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

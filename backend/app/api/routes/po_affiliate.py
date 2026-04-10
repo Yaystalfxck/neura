@@ -81,6 +81,114 @@ async def fetch_deposits_from_po(pocket_option_id: str) -> List[dict]:
     return []
 
 
+@router.get("/sync-referrals/{user_id}")
+async def sync_referrals_status(
+    user_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Синхронизация статуса рефералов из PocketOption Affiliate API
+    Обновляет active/inactive статус для каждого реферала
+    """
+    try:
+        from app.models import User as UserModel
+        
+        # Находим пользователя
+        result = await db.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Получаем всех рефералов пользователя
+        referrals_result = await db.execute(
+            select(Referral).where(Referral.referrer_id == user_id)
+        )
+        referrals = referrals_result.scalars().all()
+
+        if not referrals:
+            return {
+                "success": True,
+                "message": "No referrals to sync",
+                "synced": 0
+            }
+
+        synced_count = 0
+        
+        # Для каждого реферала проверяем статус через PO API
+        for referral in referrals:
+            # Получаем referred пользователя
+            referred_result = await db.execute(
+                select(UserModel).where(UserModel.id == referral.referred_id)
+            )
+            referred_user = referred_result.scalar_one_or_none()
+            
+            if not referred_user or not referred_user.pocket_option_id:
+                continue
+
+            # Получаем данные из PO API
+            hash_value = generate_hash(
+                str(referred_user.pocket_option_id),
+                settings.NEXT_PUBLIC_PARTNER_ID,
+                settings.POCKETOPTION_API_TOKEN
+            )
+
+            api_url = f"https://affiliate.pocketoption.com/api/user-info/{referred_user.pocket_option_id}/{settings.NEXT_PUBLIC_PARTNER_ID}/{hash_value}"
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        api_url,
+                        headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"},
+                        timeout=5.0,
+                        follow_redirects=True
+                    )
+
+                    if response.status_code == 200:
+                        po_data = response.json()
+                        
+                        # Определяем активность по последнему депозиту или дате регистрации
+                        is_active = False
+                        
+                        # Если есть сумма депозитов > 0, считаем активным
+                        if po_data.get('sum_deposits', 0) > 0:
+                            is_active = True
+                        
+                        # Если есть сумма вывода, тоже активен
+                        if po_data.get('sum_withdraw', 0) > 0:
+                            is_active = True
+                        
+                        # Обновляем статус
+                        old_status = referral.status
+                        new_status = 'active' if is_active else 'inactive'
+                        
+                        if old_status != new_status:
+                            referral.status = new_status
+                            referral.last_active = datetime.utcnow()
+                            print(f"  ✅ Updated referral {referral.id}: {old_status} → {new_status}")
+                            synced_count += 1
+
+                    await db.commit()
+                    
+            except Exception as api_err:
+                print(f"  ⚠️ PO API Error for {referred_user.pocket_option_id}: {api_err}")
+                continue
+
+        return {
+            "success": True,
+            "message": f"Synced {synced_count} referral statuses",
+            "synced": synced_count,
+            "total": len(referrals)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/sync-deposits/{user_id}")
 async def sync_deposits(
     user_id: int,
