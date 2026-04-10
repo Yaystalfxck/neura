@@ -122,13 +122,13 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                       <CreditCard className="w-5 h-5 text-blue-400" />
                     </div>
                     <div>
-                      <div className="text-xs text-gray-400">Ваш баланс</div>
+                      <div className="text-xs text-gray-400">{t('signals.limitModalYourBalance')}</div>
                       <div className="text-lg font-bold text-white">${currentBalance.toFixed(2)}</div>
                     </div>
                   </div>
                   {nextTierBalance && (
                     <div className="text-right">
-                      <div className="text-xs text-gray-400">До следующего лимита</div>
+                      <div className="text-xs text-gray-400">{t('signals.limitModalNextTier')}</div>
                       <div className="text-lg font-bold text-purple-400">${nextTierBalance}</div>
                     </div>
                   )}
@@ -144,9 +144,9 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
               >
                 <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                   <Zap className="w-4 h-4 text-purple-400" />
-                  Доступные тарифы
+                  {t('signals.limitModalAvailablePlans')}
                 </h3>
-                
+
                 {plans.map((plan, index) => {
                   const Icon = plan.icon;
                   return (
@@ -163,7 +163,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                     >
                       {plan.popular && (
                         <div className="absolute -top-2 right-3 px-2 py-0.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full text-[10px] font-bold text-white">
-                          ПОПУЛЯРНЫЙ
+                          {t('signals.limitModalPopular')}
                         </div>
                       )}
                       <div className="flex items-center gap-3">
@@ -199,15 +199,15 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                   }}
                 >
                   <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                  Пополнить баланс
+                  {t('signals.limitModalTopUp')}
                   <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 ml-2" />
                 </Button>
-                
+
                 <button
                   onClick={onClose}
                   className="w-full py-3 text-sm text-gray-400 hover:text-gray-300 transition-colors"
                 >
-                  Закрыть
+                  {t('signals.limitModalClose')}
                 </button>
               </motion.div>
 
@@ -219,7 +219,7 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                 className="mt-4 p-3 bg-purple-900/10 border border-purple-700/30 rounded-lg"
               >
                 <p className="text-xs text-gray-400 text-center">
-                  💡 Лимиты обновляются ежедневно в 00:00 UTC. Или пополните баланс для увеличения лимита.
+                  {t('signals.limitModalHint')}
                 </p>
               </motion.div>
             </div>
