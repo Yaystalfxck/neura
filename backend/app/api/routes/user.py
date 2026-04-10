@@ -4,9 +4,10 @@ from sqlalchemy import select, func
 from app.database import get_db
 from app.models import User, ReferralLink, Referral, Commission, PartnerPayout, SignalUsage, PocketOptionUser
 from app.schemas import ReferralLinkResponse, ReferralStats, APIResponse
+from app.balance_utils import get_user_balance
+from app.signal_limits import get_signal_limits, get_next_limit_balance
 from app.dependencies import get_current_user
 from app.pocketoption_service import get_pocket_option_service, PocketOptionService
-from app.balance_utils import get_user_balance
 from datetime import datetime
 
 router = APIRouter(prefix="/api/user", tags=["User"])
@@ -36,11 +37,11 @@ def get_next_limit_balance(current_balance: float) -> float:
 
 
 @router.get("/signal-limits", response_model=dict)
-async def get_signal_limits(
+async def get_signal_limits_endpoint(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение лимитов на сигналы с проверкой баланса"""
+    """Получение лимитов на сигналы с учетом баланса и рефералов"""
     today = datetime.utcnow().date()
 
     result = await db.execute(
@@ -50,7 +51,7 @@ async def get_signal_limits(
     )
     used_today = result.scalar() or 0
 
-    # Получаем баланс пользователя с синхронизацией из PO API
+    # Получаем баланс пользователя
     user_balance = await get_user_balance(current_user, db, sync_with_po=True)
     print(f"🎯 Баланс для {current_user.email}: ${user_balance}")
 
@@ -63,30 +64,36 @@ async def get_signal_limits(
             "rank": current_user.referral_rank,
             "balance": user_balance,
             "is_admin": True,
+            "referrals_count": 0,
+            "referral_bonus": 0,
         }
 
-    if user_balance >= 200:
-        daily_limit = 5
-    elif user_balance >= 100:
-        daily_limit = 4
-    elif user_balance >= 50:
-        daily_limit = 3
-    elif user_balance >= 25:
-        daily_limit = 2
-    else:
-        daily_limit = 1
+    # Получаем количество рефералов
+    referrals_result = await db.execute(
+        select(func.count(Referral.id))
+        .where(Referral.referrer_id == current_user.id)
+    )
+    referrals_count = referrals_result.scalar() or 0
 
-    remaining = max(0, daily_limit - used_today)
+    # Рассчитываем лимиты с учетом баланса и рефералов
+    limits = get_signal_limits(user_balance, current_user.role, referrals_count)
+
+    remaining = max(0, limits["limit"] - used_today)
 
     return {
         "success": True,
-        "daily_limit": daily_limit,
+        "daily_limit": limits["limit"],
         "used_today": used_today,
         "remaining": remaining,
         "rank": current_user.referral_rank,
         "balance": user_balance,
         "is_admin": False,
-        "next_limit_balance": get_next_limit_balance(user_balance),
+        "next_limit_balance": limits["next_tier_balance"],
+        "referrals_count": referrals_count,
+        "referral_bonus": limits["referral_bonus"],
+        "base_limit": limits["base_limit"],
+        "next_referral_tier": limits.get("next_referral_tier"),
+        "referral_tiers": limits.get("referral_tiers", []),
     }
 
 

@@ -33,6 +33,9 @@ function SearchPage() {
   const [signalsLimit, setSignalsLimit] = useState<number>(1);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [nextTierBalance, setNextTierBalance] = useState<number>(25);
+  const [referralsCount, setReferralsCount] = useState<number>(0);
+  const [referralBonus, setReferralBonus] = useState<number>(0);
+  const [referralTiers, setReferralTiers] = useState<Array<{min_referrals: number; bonus: number}>>([]);
   
   // Флаги для предотвращения множественных запросов
   const initialLoadDone = useRef(false);
@@ -58,6 +61,9 @@ function SearchPage() {
         setSignalsUsed(data.used_today || data.used || 0);
         setSignalsLimit(data.daily_limit || data.limit || 1);
         setNextTierBalance(data.next_limit_balance || data.next_tier_balance || 25);
+        setReferralsCount(data.referrals_count || 0);
+        setReferralBonus(data.referral_bonus || 0);
+        setReferralTiers(data.referral_tiers || []);
       }
     } catch (error) {
       console.error('Error loading signal limits:', error);
@@ -453,6 +459,9 @@ function SearchPage() {
           signalsLimit={signalsLimit}
           nextTierBalance={nextTierBalance}
           currentBalance={user?.balance || 0}
+          referralsCount={referralsCount}
+          referralBonus={referralBonus}
+          referralTiers={referralTiers}
         />
 
         {/* Информационные карточки */}

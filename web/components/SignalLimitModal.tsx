@@ -13,6 +13,9 @@ interface SignalLimitModalProps {
   signalsLimit: number;
   nextTierBalance?: number;
   currentBalance?: number;
+  referralsCount?: number;
+  referralBonus?: number;
+  referralTiers?: Array<{min_referrals: number; bonus: number}>;
 }
 
 export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
@@ -22,6 +25,9 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
   signalsLimit,
   nextTierBalance,
   currentBalance = 0,
+  referralsCount = 0,
+  referralBonus = 0,
+  referralTiers = [],
 }) => {
   const { t } = useLanguage();
   const requiredTopUp = nextTierBalance ? Math.max(0, nextTierBalance - currentBalance) : 0;
@@ -114,25 +120,94 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="bg-gradient-to-r from-gray-800/50 to-gray-800/30 rounded-xl p-4 mb-6 border border-gray-700/50"
+                className="space-y-3 mb-6"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-500/10 rounded-lg">
-                      <CreditCard className="w-5 h-5 text-blue-400" />
+                {/* Balance */}
+                <div className="bg-gradient-to-r from-gray-800/50 to-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-500/10 rounded-lg">
+                        <CreditCard className="w-5 h-5 text-blue-400" />
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-400">{t('signals.limitModalYourBalance')}</div>
+                        <div className="text-lg font-bold text-white">${currentBalance.toFixed(2)}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-xs text-gray-400">{t('signals.limitModalYourBalance')}</div>
-                      <div className="text-lg font-bold text-white">${currentBalance.toFixed(2)}</div>
-                    </div>
+                    {nextTierBalance && (
+                      <div className="text-right">
+                        <div className="text-xs text-gray-400">{t('signals.limitModalNextTier')}</div>
+                        <div className="text-lg font-bold text-purple-400">${nextTierBalance}</div>
+                      </div>
+                    )}
                   </div>
-                  {nextTierBalance && (
-                    <div className="text-right">
-                      <div className="text-xs text-gray-400">{t('signals.limitModalNextTier')}</div>
-                      <div className="text-lg font-bold text-purple-400">${nextTierBalance}</div>
-                    </div>
-                  )}
                 </div>
+
+                {/* Referrals bonus */}
+                {referralsCount > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-gradient-to-r from-green-900/20 to-emerald-900/20 rounded-xl p-4 border border-green-700/30"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-green-500/10 rounded-lg">
+                          <TrendingUp className="w-5 h-5 text-green-400" />
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400">Рефералы</div>
+                          <div className="text-lg font-bold text-green-400">+{referralBonus} сигналов</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-400">Приглашено</div>
+                        <div className="text-lg font-bold text-white">{referralsCount}</div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Next referral tier progress */}
+                {referralTiers.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-gradient-to-r from-purple-900/20 to-pink-900/20 rounded-xl p-4 border border-purple-700/30"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-semibold text-purple-300">Следующий бонус</div>
+                      {referralTiers.find(t => referralsCount < t.min_referrals) && (
+                        <div className="text-xs text-purple-400">
+                          {referralTiers.find(t => referralsCount < t.min_referrals)!.min_referrals - referralsCount} еще
+                        </div>
+                      )}
+                    </div>
+                    {referralTiers.map((tier, i) => {
+                      const isCompleted = referralsCount >= tier.min_referrals;
+                      const isNext = !isCompleted && (i === 0 || referralsCount >= referralTiers[i-1].min_referrals);
+                      
+                      return (
+                        <div key={i} className="flex items-center gap-2 mb-2 last:mb-0">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                            isCompleted ? 'bg-green-500/30 text-green-400' : 
+                            isNext ? 'bg-purple-500/30 text-purple-400 animate-pulse' : 
+                            'bg-gray-700/50 text-gray-500'
+                          }`}>
+                            {isCompleted ? '✓' : tier.min_referrals}
+                          </div>
+                          <div className="flex-1">
+                            <div className={`text-xs ${
+                              isCompleted ? 'text-green-400' : isNext ? 'text-purple-300' : 'text-gray-500'
+                            }`}>
+                              {tier.min_referrals} рефералов → +{tier.bonus} сигналов
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </motion.div>
+                )}
               </motion.div>
 
               {/* Plans */}
