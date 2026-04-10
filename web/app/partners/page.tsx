@@ -44,6 +44,53 @@ export default function PartnersPage() {
   const [payouts, setPayouts] = useState<any[]>([]);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
+  // Signal bonus functions
+  const signalTiers = [
+    { min: 3, bonus: 1 },
+    { min: 5, bonus: 2 },
+    { min: 10, bonus: 4 },
+    { min: 20, bonus: 7 },
+    { min: 50, bonus: 15 },
+  ];
+
+  const getSignalBonus = (referrals: number) => {
+    let bonus = 0;
+    for (const tier of signalTiers) {
+      if (referrals >= tier.min) bonus = tier.bonus;
+    }
+    return bonus;
+  };
+
+  const getNextSignalBonus = (referrals: number) => {
+    for (const tier of signalTiers) {
+      if (referrals < tier.min) return tier.bonus;
+    }
+    return signalTiers[signalTiers.length - 1].bonus;
+  };
+
+  const getNextTierNeeded = (referrals: number) => {
+    for (const tier of signalTiers) {
+      if (referrals < tier.min) {
+        const needed = tier.min - referrals;
+        return language === 'en' 
+          ? `${needed} more to +${tier.bonus} signals/day`
+          : `Еще ${needed} до +${tier.bonus} сигналов/день`;
+      }
+    }
+    return language === 'en' ? 'Maximum bonus achieved!' : 'Максимальный бонус достигнут!';
+  };
+
+  const getNextTierProgress = (referrals: number) => {
+    let prevMin = 0;
+    for (const tier of signalTiers) {
+      if (referrals < tier.min) {
+        return Math.min(100, ((referrals - prevMin) / (tier.min - prevMin)) * 100);
+      }
+      prevMin = tier.min;
+    }
+    return 100;
+  };
+
   // Загрузка данных
   useEffect(() => {
     if (!user) return;
@@ -289,6 +336,79 @@ export default function PartnersPage() {
                 />
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {/* Signal Bonus Card */}
+        {stats && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gradient-to-r from-green-900/20 to-emerald-900/20 border border-green-700/30 rounded-2xl p-6 mb-8"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-green-500/10 rounded-xl">
+                <Zap className="w-6 h-6 text-green-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-green-300">
+                  {t('partnersExtended.signalBonus')}
+                </h3>
+                <p className="text-sm text-gray-400">
+                  {t('partnersExtended.signalBonusDesc')}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Current bonus */}
+              <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                <div className="text-xs text-gray-400 mb-1">{t('partnersExtended.currentBonus')}</div>
+                <div className="text-2xl font-bold text-green-400">
+                  +{getSignalBonus(stats?.total_referrals || 0)} {t('partnersExtended.signalsPerDay')}
+                </div>
+              </div>
+
+              {/* Referrals count */}
+              <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                <div className="text-xs text-gray-400 mb-1">{t('partnersExtended.yourReferrals')}</div>
+                <div className="text-2xl font-bold text-white">
+                  {stats?.total_referrals || 0}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {stats?.active_referrals || 0} {t('partnersExtended.active')}
+                </div>
+              </div>
+
+              {/* Next tier */}
+              <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                <div className="text-xs text-gray-400 mb-1">{t('partnersExtended.nextBonus')}</div>
+                <div className="text-2xl font-bold text-purple-400">
+                  +{getNextSignalBonus(stats?.total_referrals || 0)} {t('partnersExtended.signalsPerDay')}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {getNextTierNeeded(stats?.total_referrals || 0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Progress to next tier */}
+            {stats && getNextTierProgress(stats?.total_referrals || 0) > 0 && (
+              <div className="mt-4">
+                <div className="flex justify-between text-sm text-gray-400 mb-2">
+                  <span>{t('partnersExtended.progressToNextBonus')}</span>
+                  <span>{getNextTierProgress(stats?.total_referrals || 0)}%</span>
+                </div>
+                <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${getNextTierProgress(stats?.total_referrals || 0)}%` }}
+                    className="h-full bg-gradient-to-r from-green-500 to-emerald-500"
+                  />
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 
