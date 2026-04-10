@@ -304,14 +304,38 @@ def analyze_tradingview_signal(tv_data: list, strategy_type: str) -> Optional[di
         # Confidence based on votes and score
         confidence = min(95, 50 + best_score / 2.5)
 
-        # Volatility-based expiry
+        # === РАСЧЕТ ЭКСПИРАЦИИ ===
         volatility = indicators.get('volatility', 1)
+        signal_strength = confidence / 100.0
+        rsi_val = indicators.get('rsi', 50)
+        
+        # Базовая экспирация от волатильности
+        # Для биржевых пар волатильность обычно выше, чем у OTC
         if volatility < 0.5:
-            optimal_timeframe = 7
-        elif volatility > 2:
-            optimal_timeframe = 3
+            base_expiry = 5  # Низкая волатильность -> дольше
+        elif volatility < 1.5:
+            base_expiry = 3  # Средняя
+        elif volatility < 3.0:
+            base_expiry = 2  # Высокая
         else:
-            optimal_timeframe = 5
+            base_expiry = 1  # Очень высокая -> скальпинг
+
+        # Корректировка от силы сигнала (аналог entry_score)
+        signal_adjustment = 0
+        if signal_strength >= 0.75:
+            signal_adjustment = 1  # Сильный сигнал -> можно дольше
+        elif signal_strength < 0.60:
+            signal_adjustment = -1 # Слабый сигнал -> быстро
+
+        # Корректировка от RSI (разворот)
+        rsi_adjustment = 0
+        if (signal_type == 'call' and rsi_val < 30) or (signal_type == 'put' and rsi_val > 70):
+            rsi_adjustment = 1  # Хорошая точка входа -> можно дольше
+        elif (signal_type == 'call' and rsi_val > 70) or (signal_type == 'put' and rsi_val < 30):
+            rsi_adjustment = -1 # Плохая точка входа -> быстро
+
+        # Итоговая экспирация
+        optimal_timeframe = max(1, min(10, base_expiry + signal_adjustment + rsi_adjustment))
 
         current_price = best_pair.get('current_price', 0)
         # Convert price object to float if needed

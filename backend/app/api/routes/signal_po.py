@@ -658,20 +658,44 @@ async def get_signal(
         signal['current_price'] = realtime_price
 
         # === РАСЧЕТ ЭКСПИРАЦИИ ===
-        import random
-
+        # Используем расширенную логику расчета
+        
+        entry_score = best_candidate.get('entry_evaluation', {}).get('score', 50)
+        trend_match = best_candidate.get('entry_evaluation', {}).get('is_good_entry', False)
+        
+        # Базовая экспирация от волатильности
         if volatility < 0.15:
-            optimal_timeframe = 5
-            print(f"   🐢 Низкая волатильность -> {optimal_timeframe} мин")
+            base_expiry = 5  # Низкая волатильность -> дольше ждем движения
         elif volatility < 0.35:
-            optimal_timeframe = random.choice([3, 4, 5])
-            print(f"   ⚖️ Средняя волатильность -> {optimal_timeframe} мин")
+            base_expiry = 3  # Средняя
         elif volatility < 0.60:
-            optimal_timeframe = random.choice([2, 3, 4])
-            print(f"   🚀 Высокая волатильность -> {optimal_timeframe} мин")
+            base_expiry = 2  # Высокая -> быстрее забираем прибыль
         else:
-            optimal_timeframe = random.choice([1, 2])
-            print(f"   ⚡ Очень высокая -> {optimal_timeframe} мин")
+            base_expiry = 1  # Очень высокая -> скальпинг
+
+        # Корректировка от качества входа
+        entry_adjustment = 0
+        if entry_score >= 70:
+            # Отличный вход -> можно держать дольше, так как сигнал надежный
+            entry_adjustment = 1
+        elif entry_score < 40:
+            # Плохой вход -> если уж берем, то быстро, чтобы минимизировать риск
+            entry_adjustment = -1
+
+        # Корректировка от тренда
+        trend_adjustment = 0
+        if trend_match:
+            # Если тренд совпадает, даем сделке время развиться
+            trend_adjustment = 1
+        else:
+            # Если тренд против, лучше выйти быстрее
+            trend_adjustment = -1
+
+        # Итоговая экспирация (от 1 до 10 минут)
+        optimal_timeframe = max(1, min(10, base_expiry + entry_adjustment + trend_adjustment))
+        
+        print(f"   ⏱️ База: {base_expiry} мин, Вход: {entry_adjustment:+}, Тренд: {trend_adjustment:+}")
+        print(f"   🎯 Итоговая экспирация: {optimal_timeframe} мин")
 
         signal['expiry_minutes'] = optimal_timeframe
 
