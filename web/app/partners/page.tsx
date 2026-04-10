@@ -101,6 +101,14 @@ export default function PartnersPage() {
     try {
       setLoading(true);
 
+      // Sync referral statuses from PO Affiliate API first
+      if (user?.id) {
+        try {
+          await fetch(`/api/po/sync-referrals/${user.id}`, { method: 'GET' });
+        } catch (e) {
+          console.log('⚠️ Sync referrals failed:', e);
+        }
+      }
 
       const [linkRes, statsRes, referralsRes, payoutsRes] = await Promise.all([
         fetch('/api/partner/referral-link'),
