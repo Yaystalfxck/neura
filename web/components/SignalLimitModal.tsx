@@ -156,12 +156,12 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                           <TrendingUp className="w-5 h-5 text-green-400" />
                         </div>
                         <div>
-                          <div className="text-xs text-gray-400">Рефералы</div>
-                          <div className="text-lg font-bold text-green-400">+{referralBonus} сигналов</div>
+                          <div className="text-xs text-gray-400">{t('signals.limitModalReferrals')}</div>
+                          <div className="text-lg font-bold text-green-400">+{referralBonus} {t('signals.limitModalSignals')}</div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-gray-400">Приглашено</div>
+                        <div className="text-xs text-gray-400">{t('signals.limitModalInvited')}</div>
                         <div className="text-lg font-bold text-white">{referralsCount}</div>
                       </div>
                     </div>
@@ -176,22 +176,22 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                     className="bg-gradient-to-r from-purple-900/20 to-pink-900/20 rounded-xl p-4 border border-purple-700/30"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-semibold text-purple-300">Следующий бонус</div>
+                      <div className="text-sm font-semibold text-purple-300">{t('signals.limitModalNextBonus')}</div>
                       {referralTiers.find(t => referralsCount < t.min_referrals) && (
                         <div className="text-xs text-purple-400">
-                          {referralTiers.find(t => referralsCount < t.min_referrals)!.min_referrals - referralsCount} еще
+                          {t('signals.limitModalMoreNeeded').replace('{count}', String(referralTiers.find(t => referralsCount < t.min_referrals)!.min_referrals - referralsCount))}
                         </div>
                       )}
                     </div>
                     {referralTiers.map((tier, i) => {
                       const isCompleted = referralsCount >= tier.min_referrals;
                       const isNext = !isCompleted && (i === 0 || referralsCount >= referralTiers[i-1].min_referrals);
-                      
+
                       return (
                         <div key={i} className="flex items-center gap-2 mb-2 last:mb-0">
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
-                            isCompleted ? 'bg-green-500/30 text-green-400' : 
-                            isNext ? 'bg-purple-500/30 text-purple-400 animate-pulse' : 
+                            isCompleted ? 'bg-green-500/30 text-green-400' :
+                            isNext ? 'bg-purple-500/30 text-purple-400 animate-pulse' :
                             'bg-gray-700/50 text-gray-500'
                           }`}>
                             {isCompleted ? '✓' : tier.min_referrals}
@@ -200,7 +200,9 @@ export const SignalLimitModal: React.FC<SignalLimitModalProps> = ({
                             <div className={`text-xs ${
                               isCompleted ? 'text-green-400' : isNext ? 'text-purple-300' : 'text-gray-500'
                             }`}>
-                              {tier.min_referrals} рефералов → +{tier.bonus} сигналов
+                              {t('signals.limitModalReferralsSignal')
+                                .replace('{count}', String(tier.min_referrals))
+                                .replace('{bonus}', String(tier.bonus))}
                             </div>
                           </div>
                         </div>
