@@ -278,25 +278,29 @@ class MLSignalGenerator:
         features['psar_reversal'] = (df['psar'].diff() != 0).astype(int)
 
         # === Целевая переменная (СБАЛАНСИРОВАННАЯ) ===
-        # 1 = CALL (цена выросла), 0 = PUT (цена упала)
+        # Используем несколько горизонтов для более точного предсказания
+        future_3 = df['close'].shift(-3)
         future_5 = df['close'].shift(-5)
-        future_10 = df['close'].shift(-10)
+        future_8 = df['close'].shift(-8)
 
-        # CALL если цена выросла хотя бы в одном из периодов
-        call_signal = (
-            (future_5 > df['close']) |
-            (future_10 > df['close'])
-        )
+        # Определяем направление по большинству горизонтов
+        up_3 = (future_3 > df['close']).astype(int)
+        up_5 = (future_5 > df['close']).astype(int)
+        up_8 = (future_8 > df['close']).astype(int)
 
-        # PUT только если цена упала в ОБОИХ периодах (сильный сигнал)
-        put_signal = (
-            (future_5 <= df['close']) &
-            (future_10 <= df['close'])
-        )
+        # Суммируем "голоса" направлений
+        up_votes = up_3 + up_5 + up_8
+
+        # CALL если большинство горизонтов показывают рост (2 из 3)
+        call_signal = (up_votes >= 2)
+
+        # PUT если большинство горизонтов показывают падение (2 из 3)
+        put_signal = (up_votes <= 1)
 
         # Итоговая целевая: 1=CALL, 0=PUT
         features['target'] = call_signal.astype(int)
         features['is_put'] = put_signal.astype(int)
+        features['confidence_votes'] = up_votes  # Для оценки уверенности (0-3)
 
         return features.dropna()
     
@@ -377,7 +381,7 @@ class MLSignalGenerator:
     
     def predict(self, candles: List[Dict]) -> Optional[Dict]:
         """
-        Предсказание сигнала
+        Предсказание сигнала с улучшенной валидацией
 
         Args:
             candles: Последние свечи
@@ -400,7 +404,7 @@ class MLSignalGenerator:
             if features.empty:
                 return None
 
-            last_features = features.iloc[[-1]][features.columns[:-2]]  # Без target и is_put
+            last_features = features.iloc[[-1]][features.columns[:-3]]  # Без target, is_put, confidence_votes
 
             # Предсказание
             proba = self.model.predict_proba(last_features)[0]
@@ -408,45 +412,127 @@ class MLSignalGenerator:
             put_prob = proba[0]  # Вероятность PUT
             call_prob = proba[1]  # Вероятность CALL
 
-            logger.info(f"ML предсказание: PUT={put_prob:.2f}, CALL={call_prob:.2f}")
-
-            # Анализируем тренд для дополнительной проверки
+            # === ВАЛИДАЦИЯ СИГНАЛА ===
+            
+            # 1. Анализируем тренд за последние 10 свечей
             recent_closes = [c.get('close', 0) for c in candles[-10:]]
             if len(recent_closes) >= 10:
                 trend_up = sum(1 for i in range(1, len(recent_closes)) if recent_closes[i] > recent_closes[i-1])
                 trend_down = 10 - trend_up
                 is_uptrend = trend_up > trend_down
+                trend_strength = abs(trend_up - trend_down) / 10  # 0-1
             else:
                 is_uptrend = call_prob > put_prob
+                trend_strength = 0
 
-            # Генерация сигнала с учетом тренда и баланса
-            # Снижаем порог до 50% для лучшего обнаружения сигналов
-            if call_prob > 0.50:
-                # CALL сигнал - усиливаем если тренд восходящий
-                adjusted_confidence = call_prob
-                if is_uptrend:
-                    adjusted_confidence = min(0.95, call_prob * 1.1)  # +10% если трен совпадает
-
-                return {
-                    'direction': 'call',
-                    'confidence': adjusted_confidence,
-                    'ml_accuracy': self.model_accuracy,
-                    'trend': 'bullish' if is_uptrend else 'bearish'
-                }
-            elif put_prob > 0.50:
-                # PUT сигнал - усиливаем если тренд нисходящий
-                adjusted_confidence = put_prob
-                if not is_uptrend:
-                    adjusted_confidence = min(0.95, put_prob * 1.1)  # +10% если трен совпадает
-
-                return {
-                    'direction': 'put',
-                    'confidence': adjusted_confidence,
-                    'ml_accuracy': self.model_accuracy,
-                    'trend': 'bearish' if not is_uptrend else 'bullish'
-                }
+            # 2. Проверяем моментум (последние 3 свечи)
+            if len(candles) >= 3:
+                last_3 = candles[-3:]
+                closes_3 = [c.get('close', 0) for c in last_3]
+                momentum_up = closes_3[2] > closes_3[1] > closes_3[0]
+                momentum_down = closes_3[2] < closes_3[1] < closes_3[0]
             else:
-                logger.info(f"ML: Низкая уверенность (PUT={put_prob:.2f}, CALL={call_prob:.2f})")
+                momentum_up = False
+                momentum_down = False
+
+            # 3. Проверяем RSI (перекупленность/перепроданность)
+            rsi_value = df['rsi_14'].iloc[-1] if 'rsi_14' in df.columns else 50
+            is_overbought = rsi_value > 70  # Риск разворота вниз
+            is_oversold = rsi_value < 30    # Риск разворота вверх
+
+            # 4. Проверяем позицию цены относительно Bollinger Bands
+            bb_position = df['bb_position'].iloc[-1] if 'bb_position' in df.columns else 0.5
+            at_upper_band = bb_position > 0.9  # У верхней границы
+            at_lower_band = bb_position < 0.1  # У нижней границы
+
+            # === ГЕНЕРАЦИЯ СИГНАЛА С ВАЛИДАЦИЕЙ ===
+            
+            # Минимальный порог уверенности
+            min_confidence = 0.55
+
+            if call_prob > min_confidence:
+                # CALL сигнал
+                adjusted_confidence = call_prob
+                
+                # Проверяем совпадение с трендом
+                if is_uptrend and trend_strength > 0.2:
+                    adjusted_confidence = min(0.95, call_prob * 1.15)  # +15% если трен совпадает
+                
+                # Проверяем моментум
+                if momentum_up:
+                    adjusted_confidence = min(0.95, adjusted_confidence * 1.05)
+                
+                # Штраф за перекупленность (риск разворота)
+                if is_overbought:
+                    adjusted_confidence *= 0.85  # -15%
+                    logger.info(f"⚠️ CALL сигнал ослаблен: RSI перекуплен ({rsi_value:.0f})")
+                
+                # Штраф если у верхней полосы BB
+                if at_upper_band:
+                    adjusted_confidence *= 0.90  # -10%
+
+                # Возвращаем сигнал только если уверенность достаточная
+                if adjusted_confidence > 0.55:
+                    logger.info(f"✅ CALL сигнал: {adjusted_confidence:.2f} (trend={'up' if is_uptrend else 'down'}, momentum={'up' if momentum_up else 'none'}, RSI={rsi_value:.0f})")
+                    return {
+                        'direction': 'call',
+                        'confidence': adjusted_confidence,
+                        'ml_accuracy': self.model_accuracy,
+                        'trend': 'bullish' if is_uptrend else 'bearish',
+                        'rsi': rsi_value,
+                        'validation': {
+                            'trend_match': is_uptrend,
+                            'momentum': 'up' if momentum_up else ('down' if momentum_down else 'neutral'),
+                            'rsi': rsi_value,
+                            'bb_position': bb_position
+                        }
+                    }
+                else:
+                    logger.info(f"❌ CALL сигнал отклонен: уверенность {adjusted_confidence:.2f} < 0.55")
+                    return None
+
+            elif put_prob > min_confidence:
+                # PUT сигнал
+                adjusted_confidence = put_prob
+                
+                # Проверяем совпадение с трендом
+                if not is_uptrend and trend_strength > 0.2:
+                    adjusted_confidence = min(0.95, put_prob * 1.15)  # +15% если трен совпадает
+                
+                # Проверяем моментум
+                if momentum_down:
+                    adjusted_confidence = min(0.95, adjusted_confidence * 1.05)
+                
+                # Штраф за перепроданность (риск разворота)
+                if is_oversold:
+                    adjusted_confidence *= 0.85  # -15%
+                    logger.info(f"⚠️ PUT сигнал ослаблен: RSI перепродан ({rsi_value:.0f})")
+                
+                # Штраф если у нижней полосы BB
+                if at_lower_band:
+                    adjusted_confidence *= 0.90  # -10%
+
+                # Возвращаем сигнал только если уверенность достаточная
+                if adjusted_confidence > 0.55:
+                    logger.info(f"✅ PUT сигнал: {adjusted_confidence:.2f} (trend={'down' if not is_uptrend else 'up'}, momentum={'down' if momentum_down else 'none'}, RSI={rsi_value:.0f})")
+                    return {
+                        'direction': 'put',
+                        'confidence': adjusted_confidence,
+                        'ml_accuracy': self.model_accuracy,
+                        'trend': 'bearish' if not is_uptrend else 'bullish',
+                        'rsi': rsi_value,
+                        'validation': {
+                            'trend_match': not is_uptrend,
+                            'momentum': 'down' if momentum_down else ('up' if momentum_up else 'neutral'),
+                            'rsi': rsi_value,
+                            'bb_position': bb_position
+                        }
+                    }
+                else:
+                    logger.info(f"❌ PUT сигнал отклонен: уверенность {adjusted_confidence:.2f} < 0.55")
+                    return None
+            else:
+                logger.info(f"⏸️ ML: Нет сигнала (PUT={put_prob:.2f}, CALL={call_prob:.2f})")
                 return None
 
         except Exception as e:
