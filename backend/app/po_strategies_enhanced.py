@@ -269,6 +269,184 @@ def analyze_volume_profile(candles: List[Dict]) -> Dict:
     }
 
 
+def evaluate_entry_points(candles: List[Dict], signal_type: str, sr_levels: Dict) -> Dict:
+    """
+    Оценка точки входа для сигнала
+    
+    Args:
+        candles: Последние свечи
+        signal_type: 'call' или 'put'
+        sr_levels: Уровни поддержки/сопротивления
+    
+    Returns:
+        Dict с оценкой точки входа
+    """
+    if not candles or len(candles) < 10:
+        return {'score': 0, 'is_good_entry': False, 'reason': 'Недостаточно данных'}
+
+    closes = [c.get('close', 0) for c in candles]
+    current_price = closes[-1]
+    
+    # 1. Оценка расстояния до уровней S/R
+    sr_score = 0
+    sr_reason = ""
+    
+    if sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
+        dist_to_support = sr_levels['nearest_support']['distance_pct']
+        dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
+        
+        if signal_type == 'call':
+            # Для CALL хорошо быть близко к поддержке
+            if dist_to_support < 0.3:
+                sr_score = 30
+                sr_reason = f"Цена у поддержки ({dist_to_support:.2f}%)"
+            elif dist_to_support < 0.5:
+                sr_score = 20
+                sr_reason = f"Цена близко к поддержке ({dist_to_support:.2f}%)"
+            else:
+                sr_score = 5
+                sr_reason = f"Цена далеко от поддержки ({dist_to_support:.2f}%)"
+        else:  # put
+            # Для PUT хорошо быть близко к сопротивлению
+            if dist_to_resistance < 0.3:
+                sr_score = 30
+                sr_reason = f"Цена у сопротивления ({dist_to_resistance:.2f}%)"
+            elif dist_to_resistance < 0.5:
+                sr_score = 20
+                sr_reason = f"Цена близко к сопротивлению ({dist_to_resistance:.2f}%)"
+            else:
+                sr_score = 5
+                sr_reason = f"Цена далеко от сопротивления ({dist_to_resistance:.2f}%)"
+
+    # 2. Оценка тренда (последние 5 свечей)
+    trend_score = 0
+    trend_reason = ""
+    
+    last_5_closes = closes[-5:]
+    if len(last_5_closes) >= 5:
+        up_count = sum(1 for i in range(1, len(last_5_closes)) if last_5_closes[i] > last_5_closes[i-1])
+        
+        if signal_type == 'call':
+            if up_count >= 4:  # 4 из 4 восходящих
+                trend_score = 25
+                trend_reason = "Сильный восходящий тренд"
+            elif up_count >= 3:
+                trend_score = 15
+                trend_reason = "Восходящий тренд"
+            else:
+                trend_score = 5
+                trend_reason = "Слабый/нисходящий тренд"
+        else:  # put
+            down_count = 5 - up_count
+            if down_count >= 4:
+                trend_score = 25
+                trend_reason = "Сильный нисходящий тренд"
+            elif down_count >= 3:
+                trend_score = 15
+                trend_reason = "Нисходящий тренд"
+            else:
+                trend_score = 5
+                trend_reason = "Слабый/восходящий тренд"
+
+    # 3. Оценка моментума (последние 3 свечи)
+    momentum_score = 0
+    momentum_reason = ""
+    
+    if len(candles) >= 3:
+        last_3 = candles[-3:]
+        closes_3 = [c.get('close', 0) for c in last_3]
+        
+        if signal_type == 'call':
+            if closes_3[2] > closes_3[1] > closes_3[0]:
+                momentum_score = 20
+                momentum_reason = "3 свечи вверх подряд"
+            elif closes_3[2] > closes_3[1]:
+                momentum_score = 10
+                momentum_reason = "Последние 2 свечи вверх"
+            else:
+                momentum_score = 0
+                momentum_reason = "Нет восходящего моментума"
+        else:  # put
+            if closes_3[2] < closes_3[1] < closes_3[0]:
+                momentum_score = 20
+                momentum_reason = "3 свечи вниз подряд"
+            elif closes_3[2] < closes_3[1]:
+                momentum_score = 10
+                momentum_reason = "Последние 2 свечи вниз"
+            else:
+                momentum_score = 0
+                momentum_reason = "Нет нисходящего моментума"
+
+    # 4. Оценка RSI
+    rsi_score = 0
+    rsi_reason = ""
+    
+    # Расчет RSI
+    deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+    gains = [d if d > 0 else 0 for d in deltas[-14:]]
+    losses = [-d if d < 0 else 0 for d in deltas[-14:]]
+    
+    if len(gains) >= 14 and len(losses) >= 14:
+        avg_gain = sum(gains) / 14
+        avg_loss = sum(losses) / 14
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+        rsi = 100 - (100 / (1 + rs))
+        
+        if signal_type == 'call':
+            if rsi < 30:
+                rsi_score = 25
+                rsi_reason = f"RSI перепродан ({rsi:.0f}) - хороший вход"
+            elif rsi < 40:
+                rsi_score = 15
+                rsi_reason = f"RSI близко к перепроданности ({rsi:.0f})"
+            elif rsi > 70:
+                rsi_score = -10
+                rsi_reason = f"RSI перекуплен ({rsi:.0f}) - плохой вход"
+            else:
+                rsi_score = 10
+                rsi_reason = f"RSI нейтрален ({rsi:.0f})"
+        else:  # put
+            if rsi > 70:
+                rsi_score = 25
+                rsi_reason = f"RSI перекуплен ({rsi:.0f}) - хороший вход"
+            elif rsi > 60:
+                rsi_score = 15
+                rsi_reason = f"RSI близко к перекупленности ({rsi:.0f})"
+            elif rsi < 30:
+                rsi_score = -10
+                rsi_reason = f"RSI перепродан ({rsi:.0f}) - плохой вход"
+            else:
+                rsi_score = 10
+                rsi_reason = f"RSI нейтрален ({rsi:.0f})"
+    else:
+        rsi_score = 10
+        rsi_reason = "Недостаточно данных для RSI"
+
+    # Итоговая оценка
+    total_score = sr_score + trend_score + momentum_score + rsi_score
+    max_possible = 100  # 30+25+20+25
+    
+    # Хорошая точка входа если score > 60%
+    is_good_entry = total_score >= 60
+    
+    reasons = [sr_reason, trend_reason, momentum_reason, rsi_reason]
+    
+    return {
+        'score': total_score,
+        'max_score': max_possible,
+        'percentage': (total_score / max_possible) * 100,
+        'is_good_entry': is_good_entry,
+        'components': {
+            'support_resistance': sr_score,
+            'trend': trend_score,
+            'momentum': momentum_score,
+            'rsi': rsi_score
+        },
+        'reasons': reasons,
+        'reason': " | ".join(reasons)
+    }
+
+
 def combined_strategy_analysis(candles: List[Dict]) -> Dict:
     """
     Комбинированный анализ с голосованием стратегий

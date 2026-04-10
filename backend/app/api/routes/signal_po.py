@@ -21,7 +21,8 @@ from app.po_strategies_enhanced import (
     detect_candlestick_patterns,
     analyze_trend_strength,
     analyze_volume_profile,
-    combined_strategy_analysis
+    combined_strategy_analysis,
+    evaluate_entry_points
 )
 from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
@@ -479,43 +480,69 @@ async def get_signal(
                     # === Анализ уровней поддержки/сопротивления ===
                     sr_levels = calculate_support_resistance_levels(clean_candles)
 
-                    # Корректируем уверенность на основе уровней
-                    sr_adjustment = 0
+                    # === Оценка точки входа ===
+                    entry_evaluation = evaluate_entry_points(clean_candles, signal.get('signal_type', 'call'), sr_levels)
+                    
+                    # Если точка входа плохая (score < 40%), отклоняем сигнал
+                    if entry_evaluation['percentage'] < 40:
+                        print(f"   ❌ Точка входа плохая ({entry_evaluation['percentage']:.0f}%) - сигнал отклонен")
+                        signal = None
+                    else:
+                        # Корректируем уверенность на основе точки входа
+                        entry_adjustment = 0
+                        
+                        if entry_evaluation['percentage'] >= 70:
+                            entry_adjustment = 10
+                            print(f"   ✅ Отличная точка входа ({entry_evaluation['percentage']:.0f}%) +10%")
+                        elif entry_evaluation['percentage'] >= 50:
+                            entry_adjustment = 5
+                            print(f"   📊 Хорошая точка входа ({entry_evaluation['percentage']:.0f}%) +5%")
+                        elif entry_evaluation['percentage'] < 45:
+                            entry_adjustment = -5
+                            print(f"   ⚠️ Средняя точка входа ({entry_evaluation['percentage']:.0f}%) -5%")
+                        
+                        # Корректируем уверенность на основе уровней S/R
+                        sr_adjustment = 0
+                        if sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
+                            dist_to_support = sr_levels['nearest_support']['distance_pct']
+                            dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
+                            support_strength = sr_levels['nearest_support']['strength']
+                            resistance_strength = sr_levels['nearest_resistance']['strength']
 
-                    if sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
-                        dist_to_support = sr_levels['nearest_support']['distance_pct']
-                        dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
-                        support_strength = sr_levels['nearest_support']['strength']
-                        resistance_strength = sr_levels['nearest_resistance']['strength']
+                            # Если цена близко к сильной поддержке → BUY сигнал сильнее
+                            if dist_to_support < 0.5 and support_strength > 0.5:
+                                sr_adjustment += 5
+                                print(f"   📊 Цена близко к поддержке ({dist_to_support:.2f}%, сила {support_strength:.2f})")
 
-                        # Если цена близко к сильной поддержке → BUY сигнал сильнее
-                        if dist_to_support < 0.5 and support_strength > 0.5:
-                            sr_adjustment += 5
-                            print(f"   📊 Цена близко к поддержке ({dist_to_support:.2f}%, сила {support_strength:.2f})")
+                            # Если цена близко к сильному сопротивлению → SELL сигнал сильнее
+                            if dist_to_resistance < 0.5 and resistance_strength > 0.5:
+                                sr_adjustment += 5
+                                print(f"   📊 Цена близко к сопротивлению ({dist_to_resistance:.2f}%, сила {resistance_strength:.2f})")
 
-                        # Если цена близко к сильному сопротивлению → SELL сигнал сильнее
-                        if dist_to_resistance < 0.5 and resistance_strength > 0.5:
-                            sr_adjustment += 5
-                            print(f"   📊 Цена близко к сопротивлению ({dist_to_resistance:.2f}%, сила {resistance_strength:.2f})")
+                            # Если цена между уровнями - нейтральная зона
+                            if dist_to_support > 1.0 and dist_to_resistance > 1.0:
+                                sr_adjustment -= 3
+                                print(f"   📊 Цена в нейтральной зоне")
 
-                        # Если цена между уровнями - нейтральная зона
-                        if dist_to_support > 1.0 and dist_to_resistance > 1.0:
-                            sr_adjustment -= 3
-                            print(f"   📊 Цена в нейтральной зоне")
+                        # Получаем уверенность из сигнала
+                        conf_str = signal.get('confidence', '50%') if signal else '50%'
+                        conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
 
-                    # Получаем уверенность из сигнала
-                    conf_str = signal.get('confidence', '50%') if signal else '50%'
-                    conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-
-                    # Применяем корректировку
-                    if sr_adjustment != 0 and signal:
-                        conf = max(50, min(95, conf + sr_adjustment))
-                        signal['confidence'] = f"{conf:.0f}%"
-                        signal['support_resistance'] = {
-                            'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
-                            'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
-                            'adjustment': sr_adjustment
-                        }
+                        # Применяем все корректировки
+                        total_adjustment = entry_adjustment + sr_adjustment
+                        if total_adjustment != 0 and signal:
+                            conf = max(50, min(95, conf + total_adjustment))
+                            signal['confidence'] = f"{conf:.0f}%"
+                            signal['support_resistance'] = {
+                                'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
+                                'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
+                                'adjustment': total_adjustment
+                            }
+                            signal['entry_evaluation'] = {
+                                'score': entry_evaluation['percentage'],
+                                'is_good_entry': entry_evaluation['is_good_entry'],
+                                'reason': entry_evaluation['reason']
+                            }
 
                     # Добавляем в кандидаты
                     if signal:
