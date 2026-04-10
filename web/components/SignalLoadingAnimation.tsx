@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Brain, Zap, Activity, TrendingUp, BarChart3, Cpu, Globe, Target, ArrowRight, Search, Radar, Scan, Waves, Sparkles } from 'lucide-react';
+import { useLanguage } from '@/app/contexts/LanguageContext';
 
 interface SignalLoadingAnimationProps {
   market: string;
@@ -10,27 +11,31 @@ interface SignalLoadingAnimationProps {
   aiType: string;
 }
 
-const analysisSteps = [
-  { icon: Brain, text: "Запуск нейронной сети...", textEn: "Initializing neural network..." },
-  { icon: Zap, text: "Анализ рыночных данных...", textEn: "Analyzing market data..." },
-  { icon: Activity, text: "Расчет индикаторов...", textEn: "Calculating indicators..." },
-  { icon: TrendingUp, text: "Определение тренда...", textEn: "Detecting trends..." },
-  { icon: BarChart3, text: "Анализ объемов...", textEn: "Analyzing volumes..." },
-  { icon: Target, text: "Поиск точек входа...", textEn: "Finding entry points..." },
-  { icon: Cpu, text: "Обработка ML модели...", textEn: "Processing ML model..." },
-  { icon: Globe, text: "Сканирование рынка...", textEn: "Scanning markets..." },
-  { icon: Radar, text: "Обнаружение паттернов...", textEn: "Detecting patterns..." },
-  { icon: Scan, text: "Верификация сигнала...", textEn: "Verifying signal..." },
-];
-
 export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
   market,
   timeframe,
   aiType
 }) => {
+  const { t } = useLanguage();
   const [currentStep, setCurrentStep] = useState(0);
   const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number; size: number; speed: number }>>([]);
-  const [waveOffset, setWaveOffset] = useState(0);
+
+  // Шаги анализа с ключами переводов
+  const analysisStepKeys = [
+    'signals.loadingStepNeuralNet',
+    'signals.loadingStepMarketData',
+    'signals.loadingStepIndicators',
+    'signals.loadingStepTrend',
+    'signals.loadingStepVolumes',
+    'signals.loadingStepEntryPoints',
+    'signals.loadingStepML',
+    'signals.loadingStepScanning',
+    'signals.loadingStepPatterns',
+    'signals.loadingStepVerifying',
+  ];
+
+  // Иконки для каждого шага
+  const analysisIcons = [Brain, Zap, Activity, TrendingUp, BarChart3, Target, Cpu, Globe, Radar, Scan];
 
   // Генерация частиц
   useEffect(() => {
@@ -47,20 +52,12 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
   // Анимация шагов анализа
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentStep((prev) => (prev + 1) % analysisSteps.length);
+      setCurrentStep((prev) => (prev + 1) % analysisStepKeys.length);
     }, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  // Анимация волны
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setWaveOffset((prev) => prev + 0.1);
-    }, 50);
-    return () => clearInterval(interval);
-  }, []);
-
-  const CurrentIcon = analysisSteps[currentStep].icon;
+  const CurrentIcon = analysisIcons[currentStep];
 
   return (
     <div className="relative overflow-hidden">
@@ -178,7 +175,7 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
                   ease: 'easeInOut',
                 }}
               >
-                <CurrentIcon className="w-12 h-12 text-white" />
+                {React.createElement(analysisIcons[currentStep], { className: "w-12 h-12 text-white" })}
               </motion.div>
             </motion.div>
           </div>
@@ -194,17 +191,14 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
             className="text-center mb-8"
           >
             <h3 className="text-2xl font-bold mb-2 bg-gradient-to-r from-blue-400 via-purple-400 to-green-400 bg-clip-text text-transparent">
-              {analysisSteps[currentStep].text}
+              {t(analysisStepKeys[currentStep])}
             </h3>
-            <p className="text-gray-400 text-sm">
-              {analysisSteps[currentStep].textEn}
-            </p>
           </motion.div>
         </AnimatePresence>
 
         {/* Индикатор прогресса */}
         <div className="flex justify-center gap-2 mb-6">
-          {analysisSteps.map((_, i) => (
+          {analysisStepKeys.map((_, i) => (
             <motion.div
               key={i}
               className="w-8 h-1 rounded-full"
@@ -225,7 +219,7 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
               borderColor: currentStep % 3 === 0 ? 'rgba(59, 130, 246, 0.5)' : 'rgba(55, 65, 81, 0.5)',
             }}
           >
-            <div className="text-xs text-gray-400 mb-1">Рынок</div>
+            <div className="text-xs text-gray-400 mb-1">{t('signals.loadingMarket')}</div>
             <div className="font-semibold text-sm">{market === 'otc' ? 'OTC' : market === 'demo' ? 'Demo' : 'Market'}</div>
           </motion.div>
           <motion.div
@@ -234,8 +228,8 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
               borderColor: currentStep % 3 === 1 ? 'rgba(168, 85, 247, 0.5)' : 'rgba(55, 65, 81, 0.5)',
             }}
           >
-            <div className="text-xs text-gray-400 mb-1">Таймфрейм</div>
-            <div className="font-semibold text-sm">{timeframe} мин</div>
+            <div className="text-xs text-gray-400 mb-1">{t('signals.loadingTimeframe')}</div>
+            <div className="font-semibold text-sm">{timeframe} {t('common.minutes') || 'min'}</div>
           </motion.div>
           <motion.div
             className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-3 border border-gray-700"
@@ -243,7 +237,7 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
               borderColor: currentStep % 3 === 2 ? 'rgba(34, 197, 94, 0.5)' : 'rgba(55, 65, 81, 0.5)',
             }}
           >
-            <div className="text-xs text-gray-400 mb-1">AI Модель</div>
+            <div className="text-xs text-gray-400 mb-1">{t('signals.loadingAIModel')}</div>
             <div className="font-semibold text-sm">{aiType.replace('_ai', '').toUpperCase()}</div>
           </motion.div>
         </div>
@@ -310,7 +304,7 @@ export const SignalLoadingAnimation: React.FC<SignalLoadingAnimationProps> = ({
             }}
             className="text-sm text-gray-400"
           >
-            🔍 Анализ рынков в реальном времени...
+            {t('signals.loadingRealTimeAnalysis')}
           </motion.p>
         </div>
       </div>
