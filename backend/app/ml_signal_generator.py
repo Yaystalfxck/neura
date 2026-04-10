@@ -328,8 +328,9 @@ class MLSignalGenerator:
                 return False
 
             # Разделение на train/test
-            # Используем target (1=CALL, 0=PUT)
-            X = features.iloc[:, :-2]  # Все колонки кроме target и is_put
+            # Исключаем целевые переменные из признаков (target, is_put, confidence_votes)
+            feature_cols = [c for c in features.columns if c not in ['target', 'is_put', 'confidence_votes']]
+            X = features[feature_cols]
             y = features['target']
 
             # Проверяем баланс классов
@@ -404,7 +405,9 @@ class MLSignalGenerator:
             if features.empty:
                 return None
 
-            last_features = features.iloc[[-1]][features.columns[:-3]]  # Без target, is_put, confidence_votes
+            # Исключаем целевые переменные (те же колонки что и при обучении)
+            feature_cols = [c for c in features.columns if c not in ['target', 'is_put', 'confidence_votes']]
+            last_features = features.iloc[[-1]][feature_cols]
 
             # Предсказание
             proba = self.model.predict_proba(last_features)[0]

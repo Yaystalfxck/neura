@@ -365,12 +365,18 @@ async def get_signal(
 
         # Список OTC активов для анализа
         currency_pairs = [
-            {"id": "EURUSD_otc", "name": "EUR/USD OTC"}, {"id": "GBPUSD_otc", "name": "GBP/USD OTC"},
-            {"id": "AUDUSD_otc", "name": "AUD/USD OTC"}, {"id": "USDJPY_otc", "name": "USD/JPY OTC"},
-            {"id": "USDCAD_otc", "name": "USD/CAD OTC"}, {"id": "USDCHF_otc", "name": "USD/CHF OTC"},
-            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC"}, {"id": "NZDUSD_otc", "name": "NZD/USD OTC"},
-            {"id": "EURGBP_otc", "name": "EUR/GBP OTC"}, {"id": "EURJPY_otc", "name": "EUR/JPY OTC"},
-            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC"}, {"id": "AUDJPY_otc", "name": "AUD/JPY OTC"},
+            {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 85},
+            {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 85},
+            {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 85},
+            {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 85},
+            {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 85},
+            {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
+            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 85},
+            {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 85},
+            {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
+            {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 85},
+            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 85},
+            {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 85},
         ]
 
         print(f"📊 Начинаем сканирование {len(currency_pairs)} активов...")
