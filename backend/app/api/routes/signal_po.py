@@ -31,7 +31,10 @@ try:
     USE_BOT_V2 = True
 except ImportError:
     USE_BOT_V2 = False
-    from app.pocketoptionapi_async.client import AsyncPocketOptionClient
+    try:
+        from app.pocketoptionapi_async.client import AsyncPocketOptionClient
+    except ImportError:
+        AsyncPocketOptionClient = None
     Config = None
 
 settings = get_settings()
