@@ -303,8 +303,12 @@ def combined_strategy_analysis(candles: List[Dict]) -> Dict:
         }
     
     # 2. Тренд
+    if trend['trend'] == 'bullish':
+        votes['call'] += trend['strength'] / 100
+    elif trend['trend'] == 'bearish':
+        votes['put'] += trend['strength'] / 100
+        
     if trend['trend'] != 'neutral':
-        votes[trend['trend']] += trend['strength'] / 100
         strategy_results['trend'] = {
             'signal': trend['trend'],
             'strength': trend['strength'],
