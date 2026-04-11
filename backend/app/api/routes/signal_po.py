@@ -25,6 +25,7 @@ from app.po_strategies_enhanced import (
     evaluate_entry_points
 )
 from app.po_strategies_smart import get_smart_signal
+from app.po_strategies_ml_safe import get_safe_ml_signal
 from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
@@ -421,33 +422,52 @@ async def get_signal(
                         continue
 
                     # ==========================================================
-                    # УМНЫЙ АНАЛИЗ (SMART SYSTEM)
+                    # ГИБРИДНЫЙ АНАЛИЗ (Smart System + ML)
                     # ==========================================================
                     
-                    # Умная система сама определяет режим рынка и выбирает стратегию
+                    # 1. Smart System (Правила и режимы рынка)
                     smart_res = get_smart_signal(clean_candles)
                     
-                    if smart_res.get('signal'):
+                    # 2. ML (Безопасный режим - не ломает систему при ошибке)
+                    ml_res = get_safe_ml_signal(clean_candles)
+                    
+                    signal = None
+                    final_confidence = 0
+                    direction = None
+                    
+                    # Логика слияния сигналов
+                    if smart_res.get('signal') and smart_res.get('confidence', 0) > 60:
                         direction = smart_res['signal']
-                        confidence = smart_res['confidence']
+                        final_confidence = smart_res['confidence']
                         
-                        # Проверяем уверенность
-                        if confidence > 65:
+                        # Проверяем ML
+                        if ml_res.get('signal'):
+                            if ml_res['signal'] == direction:
+                                # Совпадение! Усиливаем сигнал
+                                final_confidence += 10
+                                print(f"   🤖 ML подтверждает сигнал (+10%)")
+                            else:
+                                # Конфликт! Снижаем уверенность
+                                final_confidence -= 15
+                                print(f"   ⚠️ ML против сигнала (-15%)")
+                        
+                        # Если после коррекции уверенность все еще высокая
+                        if final_confidence > 65:
                             signal = {
                                 "signal_type": direction,
-                                "strength": "strong" if confidence > 80 else "medium",
-                                "confidence": f"{confidence:.0f}%",
+                                "strength": "strong" if final_confidence > 80 else "medium",
+                                "confidence": f"{final_confidence:.0f}%",
                                 "current_price": clean_candles[-1]['close'],
                                 "expiry_minutes": 5,
                                 "pair_name": asset['name'],
                                 "trend": 'neutral',
                                 "rsi": 50,
-                                "pattern_detected": "SMART_SIGNAL",
+                                "pattern_detected": "HYBRID" if ml_res.get('signal') else "SMART",
                                 "payout": "85%",
-                                "db_strategy": "SMART_SYSTEM",
-                                "votes": smart_res.get('votes', [])
+                                "db_strategy": "HYBRID_SYSTEM",
+                                "ml_accuracy": ml_res.get('confidence', 0)
                             }
-                            print(f"   🧠 Умный сигнал: {direction.upper()} ({confidence:.0f}%)")
+                            print(f"   🎯 Итоговый сигнал: {direction.upper()} ({final_confidence:.0f}%)")
                     
                     # Если точка входа плохая (<45%), отменяем сделку
                     if signal:
