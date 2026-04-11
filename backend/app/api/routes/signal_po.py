@@ -24,8 +24,7 @@ from app.po_strategies_enhanced import (
     combined_strategy_analysis,
     evaluate_entry_points
 )
-from app.po_strategies_varied import get_varied_strategies_consensus
-from app.po_strategies_pro import get_pro_strategies_consensus
+from app.po_strategies_smart import get_smart_signal
 from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
@@ -422,164 +421,61 @@ async def get_signal(
                         continue
 
                     # ==========================================================
-                    # УЛУЧШЕННАЯ ЛОГИКА АНАЛИЗА (CONSENSUS)
+                    # УМНЫЙ АНАЛИЗ (SMART SYSTEM)
                     # ==========================================================
                     
-                    # 1. ML Анализ (Мозг)
-                    ml_result = None
-                    ml_signal_data = None
-                    try:
-                        ml_gen = get_ml()
-                        if ml_gen.train(clean_candles):
-                            ml_res = ml_gen.predict(clean_candles)
-                            # Строгий порог для ML (55%)
-                            if ml_res and ml_res.get('confidence', 0) > 0.55:
-                                ml_result = ml_res
-                                ml_signal_data = {
-                                    "signal_type": ml_res.get('direction', 'call'),
-                                    "confidence": ml_res.get('confidence', 0) * 100,
-                                    "source": "ML"
-                                }
-                                direction_emoji = "📈" if ml_signal_data['signal_type'] == 'call' else "📉"
-                                print(f"   {direction_emoji} ML: {ml_signal_data['signal_type'].upper()} ({ml_signal_data['confidence']:.0f}%)")
-                    except Exception as ml_err:
-                        print(f"   ⚠️ ML ошибка: {ml_err}")
-
-                    # 2. Индикаторы (Проверка здравого смысла)
-                    ind_signal_data = None
-                    try:
-                        ind_res = advanced_signal_strategy(clean_candles, asset, "indicators")
-                        if ind_res:
-                            conf_str = ind_res.get('confidence', '0%')
-                            conf_val = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else 0
-                            if conf_val > 55: # Строгий порог
-                                ind_signal_data = {
-                                    "signal_type": ind_res.get('signal_type', 'call'),
-                                    "confidence": conf_val,
-                                    "source": "INDICATORS"
-                                }
-                                print(f"   📊 Индикаторы: {ind_signal_data['signal_type'].upper()} ({ind_signal_data['confidence']:.0f}%)")
-                    except Exception as ind_err:
-                        print(f"   ⚠️ Индикаторы ошибка: {ind_err}")
-
-                    # 3. Синтез Сигнала (Consensus)
-                    signal = None
-                    final_confidence = 0
-
-                    if ml_signal_data:
-                        # Есть сигнал от ML
-                        direction = ml_signal_data['signal_type']
-                        final_confidence = ml_signal_data['confidence']
+                    # Умная система сама определяет режим рынка и выбирает стратегию
+                    smart_res = get_smart_signal(clean_candles)
+                    
+                    if smart_res.get('signal'):
+                        direction = smart_res['signal']
+                        confidence = smart_res['confidence']
                         
-                        # Проверяем совпадение с индикаторами
-                        if ind_signal_data:
-                            if ind_signal_data['signal_type'] == direction:
-                                # СОВПАДЕНИЕ! Усиливаем сигнал
-                                final_confidence = (final_confidence + ind_signal_data['confidence']) / 2 + 10 # Бонус за согласие
-                                final_confidence = min(98, final_confidence) # Ограничиваем
-                                print(f"   🤝 ML и Индикаторы совпали! Уверенность: {final_confidence:.0f}%")
-                            else:
-                                # КОНФЛИКТ! Понижаем уверенность
-                                final_confidence -= 20 # Штраф за конфликт
-                                print(f"   ⚠️ Конфликт: ML={direction}, Ind={ind_signal_data['signal_type']}. Скорр: {final_confidence:.0f}%")
-                        
-                        # Если после штрафов уверенность все еще высокая
-                        if final_confidence > 60:
+                        # Проверяем уверенность
+                        if confidence > 65:
                             signal = {
                                 "signal_type": direction,
-                                "strength": "strong" if final_confidence > 80 else "medium",
-                                "confidence": f"{final_confidence:.0f}%",
-                                "current_price": clean_candles[-1]['close'],
-                                "expiry_minutes": 5, # Будет пересчитано ниже
-                                "pair_name": asset['name'],
-                                "trend": ml_result.get('trend', 'neutral') if ml_result else 'neutral',
-                                "rsi": ml_result.get('rsi', 50) if ml_result else 50,
-                                "pattern_detected": "ML_CONSENSUS" if ind_signal_data else "ML_STRONG",
-                                "payout": "85%",
-                                "db_strategy": "MACHINE_LEARNING",
-                                "ml_accuracy": ml_result.get('ml_accuracy', 0) if ml_result else 0
-                            }
-                    
-                    elif ind_signal_data:
-                        # ML не дал сигнала, но индикаторы очень уверены
-                        if ind_signal_data['confidence'] > 75:
-                            signal = {
-                                "signal_type": ind_signal_data['signal_type'],
-                                "strength": "medium",
-                                "confidence": f"{ind_signal_data['confidence']:.0f}%",
+                                "strength": "strong" if confidence > 80 else "medium",
+                                "confidence": f"{confidence:.0f}%",
                                 "current_price": clean_candles[-1]['close'],
                                 "expiry_minutes": 5,
                                 "pair_name": asset['name'],
                                 "trend": 'neutral',
                                 "rsi": 50,
-                                "pattern_detected": "INDICATORS_STRONG",
+                                "pattern_detected": "SMART_SIGNAL",
                                 "payout": "85%",
-                                "db_strategy": "INDICATORS"
+                                "db_strategy": "SMART_SYSTEM",
+                                "votes": smart_res.get('votes', [])
                             }
-                            print(f"   📊 Сильный сигнал индикаторов принят")
-
-                    # 4. Оценка точки входа и доп. стратегий (Только если есть сигнал)
+                            print(f"   🧠 Умный сигнал: {direction.upper()} ({confidence:.0f}%)")
+                    
+                    # Если точка входа плохая (<45%), отменяем сделку
                     if signal:
-                        try:
-                            sr_levels = calculate_support_resistance_levels(clean_candles)
-                            sig_type = signal.get('signal_type', 'call')
-                            entry_eval = evaluate_entry_points(clean_candles, sig_type, sr_levels)
+                        sr_levels = calculate_support_resistance_levels(clean_candles)
+                        entry_eval = evaluate_entry_points(clean_candles, signal['signal_type'], sr_levels)
+                        
+                        # Жесткий фильтр: если точка входа плохая (<45%), отменяем сделку
+                        if entry_eval['percentage'] < 45:
+                            print(f"   ❌ Точка входа слабая ({entry_eval['percentage']:.0f}%) - ОТМЕНА")
+                            signal = None
+                        else:
+                            # Корректируем уверенность на основе точки входа
+                            entry_bonus = (entry_eval['percentage'] - 50) / 2 # +/- от 0 до 25%
                             
-                            # 5. Проверка базовыми стратегиями (Voting System)
-                            strategies_consensus = get_varied_strategies_consensus(clean_candles)
+                            current_conf = float(signal['confidence'].replace('%', ''))
+                            new_conf = max(50, min(98, current_conf + entry_bonus))
                             
-                            # 6. Проверка ПРОФИ стратегиями (Ichimoku, Fibo, Breakout)
-                            pro_consensus = get_pro_strategies_consensus(clean_candles)
-                            
-                            consensus_direction = strategies_consensus.get('signal')
-                            pro_direction = pro_consensus.get('signal')
-                            
-                            strategy_bonus = 0
-                            strategy_penalty = 0
-                            
-                            # Оценка БАЗОВЫХ стратегий
-                            if consensus_direction == sig_type:
-                                votes = strategies_consensus.get('call_votes', 0) + strategies_consensus.get('put_votes', 0)
-                                strategy_bonus += 5 * votes
-                            elif consensus_direction is not None:
-                                strategy_penalty += 10
-                            
-                            # Оценка ПРОФИ стратегий
-                            if pro_direction == sig_type:
-                                votes = pro_consensus.get('call_votes', 0) + pro_consensus.get('put_votes', 0)
-                                strategy_bonus += 5 * votes
-                            elif pro_direction is not None:
-                                strategy_penalty += 15 # Штраф выше, так как про-стратегии надежнее
-                            
-                            # Жесткий фильтр: если точка входа плохая (<45%) ИЛИ сильный конфликт стратегий
-                            if entry_eval.get('percentage', 0) < 45 or strategy_penalty >= 15:
-                                if entry_eval.get('percentage', 0) < 45:
-                                    print(f"   ❌ Точка входа слабая ({entry_eval.get('percentage', 0):.0f}%) - ОТМЕНА")
-                                signal = None
-                            else:
-                                # Корректируем уверенность на основе точки входа и стратегий
-                                entry_bonus = (entry_eval.get('percentage', 50) - 50) / 2 # +/- от 0 до 25%
-                                total_adjustment = entry_bonus + strategy_bonus
-                                
-                                current_conf = float(signal.get('confidence', '60').replace('%', ''))
-                                new_conf = max(50, min(98, current_conf + total_adjustment))
-                                
-                                signal['confidence'] = f"{new_conf:.0f}%"
-                                signal['support_resistance'] = {
-                                    'nearest_support': sr_levels.get('nearest_support'),
-                                    'nearest_resistance': sr_levels.get('nearest_resistance'),
-                                    'adjustment': total_adjustment
-                                }
-                                signal['entry_evaluation'] = {
-                                    'score': entry_eval.get('percentage', 0),
-                                    'reason': entry_eval.get('reason', '')
-                                }
-                                signal['strategy_consensus'] = strategies_consensus
-                                signal['pro_consensus'] = pro_consensus
-                                
-                                print(f"   🎯 Итоговая уверенность: {new_conf:.0f}% (Вход: {entry_eval.get('percentage', 0):.0f}%, Стратегии: {strategy_bonus:+})")
-                        except Exception as eval_err:
-                            print(f"   ⚠️ Ошибка оценки входа/стратегий: {eval_err}")
+                            signal['confidence'] = f"{new_conf:.0f}%"
+                            signal['support_resistance'] = {
+                                'nearest_support': sr_levels.get('nearest_support'),
+                                'nearest_resistance': sr_levels.get('nearest_resistance'),
+                                'adjustment': entry_bonus
+                            }
+                            signal['entry_evaluation'] = {
+                                'score': entry_eval['percentage'],
+                                'reason': entry_eval['reason']
+                            }
+                            print(f"   🎯 Итоговая уверенность: {new_conf:.0f}% (Вход: {entry_eval['percentage']:.0f}%)")
 
                     # Добавляем в кандидаты
                     if signal:
