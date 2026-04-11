@@ -25,6 +25,7 @@ from app.po_strategies_enhanced import (
     evaluate_entry_points
 )
 from app.po_strategies_varied import get_varied_strategies_consensus
+from app.po_strategies_pro import get_pro_strategies_consensus
 from app.signal_limits import get_signal_limits, get_next_limit_balance
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
@@ -524,22 +525,31 @@ async def get_signal(
                             sig_type = signal.get('signal_type', 'call')
                             entry_eval = evaluate_entry_points(clean_candles, sig_type, sr_levels)
                             
-                            # 5. Проверка дополнительными стратегиями (Voting System)
+                            # 5. Проверка базовыми стратегиями (Voting System)
                             strategies_consensus = get_varied_strategies_consensus(clean_candles)
+                            
+                            # 6. Проверка ПРОФИ стратегиями (Ichimoku, Fibo, Breakout)
+                            pro_consensus = get_pro_strategies_consensus(clean_candles)
+                            
                             consensus_direction = strategies_consensus.get('signal')
+                            pro_direction = pro_consensus.get('signal')
                             
                             strategy_bonus = 0
                             strategy_penalty = 0
                             
+                            # Оценка БАЗОВЫХ стратегий
                             if consensus_direction == sig_type:
-                                # Совпадение!
                                 votes = strategies_consensus.get('call_votes', 0) + strategies_consensus.get('put_votes', 0)
-                                strategy_bonus = 5 * votes # +5, +10 или +15
-                                print(f"   🗳️ Доп. стратегии подтверждают ({votes}/3). Бонус +{strategy_bonus}%")
+                                strategy_bonus += 5 * votes
                             elif consensus_direction is not None:
-                                # Конфликт направлений
-                                strategy_penalty = 15
-                                print(f"   ⚠️ Конфликт с доп. стратегиями! ({sig_type} vs {consensus_direction}). Штраф -{strategy_penalty}%")
+                                strategy_penalty += 10
+                            
+                            # Оценка ПРОФИ стратегий
+                            if pro_direction == sig_type:
+                                votes = pro_consensus.get('call_votes', 0) + pro_consensus.get('put_votes', 0)
+                                strategy_bonus += 5 * votes
+                            elif pro_direction is not None:
+                                strategy_penalty += 15 # Штраф выше, так как про-стратегии надежнее
                             
                             # Жесткий фильтр: если точка входа плохая (<45%) ИЛИ сильный конфликт стратегий
                             if entry_eval.get('percentage', 0) < 45 or strategy_penalty >= 15:
@@ -556,8 +566,8 @@ async def get_signal(
                                 
                                 signal['confidence'] = f"{new_conf:.0f}%"
                                 signal['support_resistance'] = {
-                                    'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
-                                    'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
+                                    'nearest_support': sr_levels.get('nearest_support'),
+                                    'nearest_resistance': sr_levels.get('nearest_resistance'),
                                     'adjustment': total_adjustment
                                 }
                                 signal['entry_evaluation'] = {
@@ -565,6 +575,7 @@ async def get_signal(
                                     'reason': entry_eval.get('reason', '')
                                 }
                                 signal['strategy_consensus'] = strategies_consensus
+                                signal['pro_consensus'] = pro_consensus
                                 
                                 print(f"   🎯 Итоговая уверенность: {new_conf:.0f}% (Вход: {entry_eval.get('percentage', 0):.0f}%, Стратегии: {strategy_bonus:+})")
                         except Exception as eval_err:
@@ -587,7 +598,8 @@ async def get_signal(
                                 'volatility_pct': volatility_pct,
                                 'candles_count': len(clean_candles),
                                 'sr_levels': signal.get('support_resistance', {}),
-                                'combined_analysis': signal.get('strategy_consensus', {})
+                                'combined_analysis': signal.get('strategy_consensus', {}),
+                                'pro_analysis': signal.get('pro_consensus', {})
                             })
                             print(f"   ✅ Кандидат: {final_conf:.0f}% уверенности, волатильность {volatility_pct:.2f}%")
                         except Exception as add_err:
@@ -641,10 +653,21 @@ async def get_signal(
         # Показываем уровни поддержки/сопротивления
         if 'sr_levels' in best_candidate:
             sr = best_candidate['sr_levels']
-            if sr.get('nearest_support'):
-                print(f"   📊 Ближайшая поддержка: {sr['nearest_support']['price']:.5f} (расст. {sr['nearest_support']['distance_pct']:.2f}%)")
-            if sr.get('nearest_resistance'):
-                print(f"   📊 Ближайшее сопротивление: {sr['nearest_resistance']['price']:.5f} (расст. {sr['nearest_resistance']['distance_pct']:.2f}%)")
+            supp = sr.get('nearest_support')
+            res = sr.get('nearest_resistance')
+            
+            if supp:
+                # Handle both dict and float formats
+                if isinstance(supp, dict):
+                    print(f"   📊 Ближайшая поддержка: {supp.get('price', 0):.5f} (расст. {supp.get('distance_pct', 0):.2f}%)")
+                else:
+                    print(f"   📊 Ближайшая поддержка: {supp:.5f}")
+            
+            if res:
+                if isinstance(res, dict):
+                    print(f"   📊 Ближайшее сопротивление: {res.get('price', 0):.5f} (расст. {res.get('distance_pct', 0):.2f}%)")
+                else:
+                    print(f"   📊 Ближайшее сопротивление: {res:.5f}")
         
         print(f"{'='*60}")
 
