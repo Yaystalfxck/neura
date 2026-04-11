@@ -419,130 +419,129 @@ async def get_signal(
                     if len(clean_candles) < 20:
                         continue
 
-                    # === ML Анализ ===
-                    signal = None
+                    # ==========================================================
+                    # УЛУЧШЕННАЯ ЛОГИКА АНАЛИЗА (CONSENSUS)
+                    # ==========================================================
+                    
+                    # 1. ML Анализ (Мозг)
+                    ml_result = None
+                    ml_signal_data = None
                     try:
                         ml_gen = get_ml()
-                        ml_gen.train(clean_candles)
-                        ml_result = ml_gen.predict(clean_candles)
-
-                        if ml_result and ml_result.get('confidence', 0) > 0.50:
-                            signal = {
-                                "signal_type": ml_result.get('direction', 'call'),
-                                "strength": "strong" if ml_result.get('confidence', 0) > 0.75 else "medium",
-                                "confidence": f"{ml_result.get('confidence', 0) * 100:.0f}%",
-                                "current_price": clean_candles[-1]['close'],
-                                "expiry_minutes": 5,
-                                "pair_name": asset['name'],
-                                "trend": ml_result.get('trend', 'neutral'),
-                                "rsi": ml_result.get('rsi', 50),
-                                "pattern_detected": "ML_PREDICTION",
-                                "payout": "85%",
-                                "db_strategy": "MACHINE_LEARNING"
-                            }
-                            direction_emoji = "📈" if signal['signal_type'] == 'call' else "📉"
-                            print(f"   {direction_emoji} ML сигнал: {signal['signal_type'].upper()} ({signal['confidence']})")
+                        if ml_gen.train(clean_candles):
+                            ml_res = ml_gen.predict(clean_candles)
+                            # Строгий порог для ML (55%)
+                            if ml_res and ml_res.get('confidence', 0) > 0.55:
+                                ml_result = ml_res
+                                ml_signal_data = {
+                                    "signal_type": ml_res.get('direction', 'call'),
+                                    "confidence": ml_res.get('confidence', 0) * 100,
+                                    "source": "ML"
+                                }
+                                direction_emoji = "📈" if ml_signal_data['signal_type'] == 'call' else "📉"
+                                print(f"   {direction_emoji} ML: {ml_signal_data['signal_type'].upper()} ({ml_signal_data['confidence']:.0f}%)")
                     except Exception as ml_err:
                         print(f"   ⚠️ ML ошибка: {ml_err}")
 
-                    # === Индикаторы (если ML не дал сигнала) ===
-                    if signal is None:
-                        signal = advanced_signal_strategy(clean_candles, asset, "indicators")
-                        if signal:
-                            print(f"   📊 Индикаторы сигнал: {signal.get('signal_type', '?')}")
+                    # 2. Индикаторы (Проверка здравого смысла)
+                    ind_signal_data = None
+                    try:
+                        ind_res = advanced_signal_strategy(clean_candles, asset, "indicators")
+                        if ind_res:
+                            conf_str = ind_res.get('confidence', '0%')
+                            conf_val = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else 0
+                            if conf_val > 55: # Строгий порог
+                                ind_signal_data = {
+                                    "signal_type": ind_res.get('signal_type', 'call'),
+                                    "confidence": conf_val,
+                                    "source": "INDICATORS"
+                                }
+                                print(f"   📊 Индикаторы: {ind_signal_data['signal_type'].upper()} ({ind_signal_data['confidence']:.0f}%)")
+                    except Exception as ind_err:
+                        print(f"   ⚠️ Индикаторы ошибка: {ind_err}")
 
-                    # === Комбинированный анализ стратегий ===
-                    combined = combined_strategy_analysis(clean_candles)
-                    
-                    if combined['signal'] and combined['confidence'] > 50:
-                        print(f"   🎯 Комбинированный анализ: {combined['signal'].upper()} ({combined['confidence']:.0f}%)")
-                        print(f"      Голоса стратегий: {combined.get('votes', {})}")
+                    # 3. Синтез Сигнала (Consensus)
+                    signal = None
+                    final_confidence = 0
+
+                    if ml_signal_data:
+                        # Есть сигнал от ML
+                        direction = ml_signal_data['signal_type']
+                        final_confidence = ml_signal_data['confidence']
                         
-                        # Если комбинированный анализ сильнее ML - используем его
-                        combined_conf = combined['confidence'] / 100
-                        if combined_conf > (float(signal.get('confidence', '0').replace('%', '')) / 100) if signal else 0:
+                        # Проверяем совпадение с индикаторами
+                        if ind_signal_data:
+                            if ind_signal_data['signal_type'] == direction:
+                                # СОВПАДЕНИЕ! Усиливаем сигнал
+                                final_confidence = (final_confidence + ind_signal_data['confidence']) / 2 + 10 # Бонус за согласие
+                                print(f"   🤝 ML и Индикаторы совпали! Уверенность: {final_confidence:.0f}%")
+                            else:
+                                # КОНФЛИКТ! Понижаем уверенность
+                                final_confidence -= 20 # Штраф за конфликт
+                                print(f"   ⚠️ Конфликт: ML={direction}, Ind={ind_signal_data['signal_type']}. Скорр: {final_confidence:.0f}%")
+                        
+                        # Если после штрафов уверенность все еще высокая
+                        if final_confidence > 60:
                             signal = {
-                                "signal_type": combined['signal'],
-                                "strength": "strong" if combined['confidence'] > 75 else "medium",
-                                "confidence": f"{combined['confidence']:.0f}%",
+                                "signal_type": direction,
+                                "strength": "strong" if final_confidence > 80 else "medium",
+                                "confidence": f"{final_confidence:.0f}%",
+                                "current_price": clean_candles[-1]['close'],
+                                "expiry_minutes": 5, # Будет пересчитано ниже
+                                "pair_name": asset['name'],
+                                "trend": ml_result.get('trend', 'neutral') if ml_result else 'neutral',
+                                "rsi": ml_result.get('rsi', 50) if ml_result else 50,
+                                "pattern_detected": "ML_CONSENSUS" if ind_signal_data else "ML_STRONG",
+                                "payout": "85%",
+                                "db_strategy": "MACHINE_LEARNING",
+                                "ml_accuracy": ml_result.get('ml_accuracy', 0) if ml_result else 0
+                            }
+                    
+                    elif ind_signal_data:
+                        # ML не дал сигнала, но индикаторы очень уверены
+                        if ind_signal_data['confidence'] > 75:
+                            signal = {
+                                "signal_type": ind_signal_data['signal_type'],
+                                "strength": "medium",
+                                "confidence": f"{ind_signal_data['confidence']:.0f}%",
                                 "current_price": clean_candles[-1]['close'],
                                 "expiry_minutes": 5,
                                 "pair_name": asset['name'],
-                                "trend": combined['strategies'].get('trend', {}).get('signal', 'neutral'),
+                                "trend": 'neutral',
                                 "rsi": 50,
-                                "pattern_detected": "COMBINED_STRATEGIES",
+                                "pattern_detected": "INDICATORS_STRONG",
                                 "payout": "85%",
-                                "db_strategy": "INDICATORS",  # Используем существующий enum вместо COMBINED
-                                "strategies_used": list(combined['strategies'].keys())
+                                "db_strategy": "INDICATORS"
                             }
-                            print(f"   ✅ Комбинированный сигнал выбран как основной")
+                            print(f"   📊 Сильный сигнал индикаторов принят")
 
-                    # === Анализ уровней поддержки/сопротивления ===
-                    sr_levels = calculate_support_resistance_levels(clean_candles)
-
-                    # === Оценка точки входа ===
-                    entry_evaluation = evaluate_entry_points(clean_candles, signal.get('signal_type', 'call'), sr_levels)
-                    
-                    # Если точка входа плохая (score < 40%), отклоняем сигнал
-                    if entry_evaluation['percentage'] < 40:
-                        print(f"   ❌ Точка входа плохая ({entry_evaluation['percentage']:.0f}%) - сигнал отклонен")
-                        signal = None
-                    else:
-                        # Корректируем уверенность на основе точки входа
-                        entry_adjustment = 0
+                    # 4. Оценка точки входа (Тайминг)
+                    if signal:
+                        sr_levels = calculate_support_resistance_levels(clean_candles)
+                        entry_eval = evaluate_entry_points(clean_candles, signal['signal_type'], sr_levels)
                         
-                        if entry_evaluation['percentage'] >= 70:
-                            entry_adjustment = 10
-                            print(f"   ✅ Отличная точка входа ({entry_evaluation['percentage']:.0f}%) +10%")
-                        elif entry_evaluation['percentage'] >= 50:
-                            entry_adjustment = 5
-                            print(f"   📊 Хорошая точка входа ({entry_evaluation['percentage']:.0f}%) +5%")
-                        elif entry_evaluation['percentage'] < 45:
-                            entry_adjustment = -5
-                            print(f"   ⚠️ Средняя точка входа ({entry_evaluation['percentage']:.0f}%) -5%")
-                        
-                        # Корректируем уверенность на основе уровней S/R
-                        sr_adjustment = 0
-                        if sr_levels.get('nearest_support') and sr_levels.get('nearest_resistance'):
-                            dist_to_support = sr_levels['nearest_support']['distance_pct']
-                            dist_to_resistance = sr_levels['nearest_resistance']['distance_pct']
-                            support_strength = sr_levels['nearest_support']['strength']
-                            resistance_strength = sr_levels['nearest_resistance']['strength']
-
-                            # Если цена близко к сильной поддержке → BUY сигнал сильнее
-                            if dist_to_support < 0.5 and support_strength > 0.5:
-                                sr_adjustment += 5
-                                print(f"   📊 Цена близко к поддержке ({dist_to_support:.2f}%, сила {support_strength:.2f})")
-
-                            # Если цена близко к сильному сопротивлению → SELL сигнал сильнее
-                            if dist_to_resistance < 0.5 and resistance_strength > 0.5:
-                                sr_adjustment += 5
-                                print(f"   📊 Цена близко к сопротивлению ({dist_to_resistance:.2f}%, сила {resistance_strength:.2f})")
-
-                            # Если цена между уровнями - нейтральная зона
-                            if dist_to_support > 1.0 and dist_to_resistance > 1.0:
-                                sr_adjustment -= 3
-                                print(f"   📊 Цена в нейтральной зоне")
-
-                        # Получаем уверенность из сигнала
-                        conf_str = signal.get('confidence', '50%') if signal else '50%'
-                        conf = float(conf_str.replace('%', '')) if isinstance(conf_str, str) else float(conf_str)
-
-                        # Применяем все корректировки
-                        total_adjustment = entry_adjustment + sr_adjustment
-                        if total_adjustment != 0 and signal:
-                            conf = max(50, min(95, conf + total_adjustment))
-                            signal['confidence'] = f"{conf:.0f}%"
+                        # Жесткий фильтр: если точка входа плохая (<45%), отменяем сделку
+                        if entry_eval['percentage'] < 45:
+                            print(f"   ❌ Точка входа слабая ({entry_eval['percentage']:.0f}%) - ОТМЕНА")
+                            signal = None
+                        else:
+                            # Корректируем уверенность на основе точки входа
+                            entry_bonus = (entry_eval['percentage'] - 50) / 2 # +/- от 0 до 25%
+                            
+                            current_conf = float(signal['confidence'].replace('%', ''))
+                            new_conf = max(50, min(98, current_conf + entry_bonus))
+                            
+                            signal['confidence'] = f"{new_conf:.0f}%"
                             signal['support_resistance'] = {
                                 'nearest_support': sr_levels.get('nearest_support', {}).get('price'),
                                 'nearest_resistance': sr_levels.get('nearest_resistance', {}).get('price'),
-                                'adjustment': total_adjustment
+                                'adjustment': entry_bonus
                             }
                             signal['entry_evaluation'] = {
-                                'score': entry_evaluation['percentage'],
-                                'is_good_entry': entry_evaluation['is_good_entry'],
-                                'reason': entry_evaluation['reason']
+                                'score': entry_eval['percentage'],
+                                'reason': entry_eval['reason']
                             }
+                            print(f"   🎯 Точка входа: {entry_eval['percentage']:.0f}% (Скорр уверенность: {new_conf:.0f}%)")
 
                     # Добавляем в кандидаты
                     if signal:
