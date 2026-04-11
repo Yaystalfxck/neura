@@ -475,6 +475,7 @@ async def get_signal(
                             if ind_signal_data['signal_type'] == direction:
                                 # СОВПАДЕНИЕ! Усиливаем сигнал
                                 final_confidence = (final_confidence + ind_signal_data['confidence']) / 2 + 10 # Бонус за согласие
+                                final_confidence = min(98, final_confidence) # Ограничиваем
                                 print(f"   🤝 ML и Индикаторы совпали! Уверенность: {final_confidence:.0f}%")
                             else:
                                 # КОНФЛИКТ! Понижаем уверенность
@@ -571,19 +572,26 @@ async def get_signal(
 
                     # Добавляем в кандидаты
                     if signal:
-                        closes = [c['close'] for c in clean_candles[-20:]]
-                        volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
+                        try:
+                            closes = [c['close'] for c in clean_candles[-20:]]
+                            volatility_pct = ((max(closes) - min(closes)) / min(closes)) * 100 if min(closes) > 0 else 0
 
-                        analyzed_candidates.append({
-                            'asset': asset,
-                            'signal': signal,
-                            'confidence': conf,
-                            'volatility_pct': volatility_pct,
-                            'candles_count': len(clean_candles),
-                            'sr_levels': sr_levels,
-                            'combined_analysis': combined
-                        })
-                        print(f"   ✅ Кандидат: {conf}% уверенности, волатильность {volatility_pct:.2f}%")
+                            # Безопасное получение уверенности из словаря сигнала
+                            final_conf_str = signal.get('confidence', '50%')
+                            final_conf = float(final_conf_str.replace('%', '')) if isinstance(final_conf_str, str) else 50.0
+
+                            analyzed_candidates.append({
+                                'asset': asset,
+                                'signal': signal,
+                                'confidence': final_conf,
+                                'volatility_pct': volatility_pct,
+                                'candles_count': len(clean_candles),
+                                'sr_levels': signal.get('support_resistance', {}),
+                                'combined_analysis': signal.get('strategy_consensus', {})
+                            })
+                            print(f"   ✅ Кандидат: {final_conf:.0f}% уверенности, волатильность {volatility_pct:.2f}%")
+                        except Exception as add_err:
+                            print(f"   ❌ Ошибка добавления кандидата: {add_err}")
 
                 except Exception as e:
                     failed_assets += 1
