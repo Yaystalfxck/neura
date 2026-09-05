@@ -49,6 +49,7 @@ export const OTCSignals: React.FC<OTCSignalsProps> = ({ className }) => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'call' | 'put'>('all');
   const [selectedSignal, setSelectedSignal] = useState<OTCSignal | null>(null);
+  const [countdowns, setCountdowns] = useState<Record<number, string>>({});
 
   // Загрузка сигналов
   const loadSignals = async () => {
@@ -87,6 +88,38 @@ export const OTCSignals: React.FC<OTCSignalsProps> = ({ className }) => {
     const interval = setInterval(loadSignals, 30000); // Обновление каждые 30 секунд
     return () => clearInterval(interval);
   }, []);
+
+  // Обновление countdown для активных сигналов
+  useEffect(() => {
+    const updateCountdowns = () => {
+      const newCountdowns: Record<number, string> = {};
+      const now = new Date().getTime();
+
+      signals.forEach(signal => {
+        if (signal.status === 'active' && signal.expires_at) {
+          const expiryTime = new Date(signal.expires_at).getTime();
+          const timeDiff = expiryTime - now;
+
+          if (timeDiff <= 0) {
+            newCountdowns[signal.id] = '00:00';
+          } else {
+            const minutes = Math.floor(timeDiff / 60000);
+            const seconds = Math.floor((timeDiff % 60000) / 1000);
+            newCountdowns[signal.id] = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          }
+        }
+      });
+
+      setCountdowns(newCountdowns);
+    };
+
+    // Обновляем сразу
+    updateCountdowns();
+
+    // Обновляем каждую секунду
+    const countdownInterval = setInterval(updateCountdowns, 1000);
+    return () => clearInterval(countdownInterval);
+  }, [signals]);
 
   // Фильтрация сигналов
   const filteredSignals = signals.filter(signal => {
@@ -271,7 +304,7 @@ export const OTCSignals: React.FC<OTCSignalsProps> = ({ className }) => {
                     </div>
                   </div>
 
-                  {/* Right: Indicators */}
+                  {/* Right: Indicators & Countdown */}
                   <div className="text-right">
                     <div className="text-lg font-bold text-white">
                       {signal.current_price.toFixed(5)}
@@ -285,6 +318,14 @@ export const OTCSignals: React.FC<OTCSignalsProps> = ({ className }) => {
                           signal.trend_short === 'up' ? 'text-green-400' : 'text-red-400'
                         )}>
                           {signal.trend_short === 'up' ? '↑' : '↓'} {signal.trend_short}
+                        </span>
+                      )}
+                      {signal.status === 'active' && countdowns[signal.id] && (
+                        <span className={cn(
+                          "font-semibold",
+                          countdowns[signal.id] === '00:00' ? 'text-red-400' : 'text-yellow-400'
+                        )}>
+                          ⏰ {countdowns[signal.id]}
                         </span>
                       )}
                     </div>
@@ -344,6 +385,34 @@ const SignalDetailModal: React.FC<{
   signal: OTCSignal;
   onClose: () => void;
 }> = ({ signal, onClose }) => {
+  const [modalCountdown, setModalCountdown] = useState<string>('');
+
+  // Countdown for modal
+  useEffect(() => {
+    const updateCountdown = () => {
+      if (signal.status !== 'active' || !signal.expires_at) {
+        setModalCountdown('');
+        return;
+      }
+
+      const now = new Date().getTime();
+      const expiryTime = new Date(signal.expires_at).getTime();
+      const timeDiff = expiryTime - now;
+
+      if (timeDiff <= 0) {
+        setModalCountdown('00:00');
+      } else {
+        const minutes = Math.floor(timeDiff / 60000);
+        const seconds = Math.floor((timeDiff % 60000) / 1000);
+        setModalCountdown(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [signal]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -450,11 +519,25 @@ const SignalDetailModal: React.FC<{
           )}
 
           {/* Time info */}
-          <div className="flex items-center gap-2 text-sm text-gray-400">
-            <Clock className="w-4 h-4" />
-            <span>
-              Создан: {new Date(signal.created_at).toLocaleString('ru-RU')}
-            </span>
+          <div className="space-y-2">
+            {modalCountdown && (
+              <div className="flex items-center gap-2 text-sm">
+                <Clock className="w-4 h-4 text-yellow-400" />
+                <span className="text-gray-400">До экспирации:</span>
+                <span className={cn(
+                  "font-semibold text-lg",
+                  modalCountdown === '00:00' ? 'text-red-400' : 'text-yellow-400'
+                )}>
+                  {modalCountdown}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Clock className="w-4 h-4" />
+              <span>
+                Создан: {new Date(signal.created_at).toLocaleString('ru-RU')}
+              </span>
+            </div>
           </div>
 
           {/* Action buttons */}
