@@ -14,6 +14,9 @@ COPY requirements.txt .
 # Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Fix the legacy logger call used by BinaryOptionsToolsV2.
+RUN python -c "from pathlib import Path; p=Path('/usr/local/lib/python3.11/site-packages/BinaryOptionsToolsV2/pocketoption/asynchronous.py'); s=p.read_text(); s=s.replace('self.logger.warn(', 'self.logger.warning(').replace('self.logger.warning(', 'print('); p.write_text(s)" 2>/dev/null || true
+
 # Копирование кода
 COPY . .
 

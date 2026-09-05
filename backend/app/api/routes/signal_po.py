@@ -1,3 +1,20 @@
+
+
+from fastapi import APIRouter, Depends, HTTPException as FastAPIHTTPException, status, Query
+from app.dependencies import get_current_user
+from app.models import User
+from app.signal_learning import resolve_signal_outcome
+router = APIRouter(prefix="/api", tags=["Signals"])
+
+# === РУЧНОЙ ЭНДПОИНТ ДЛЯ РАЗРЕШЕНИЯ СИГНАЛА ===
+@router.post("/po/signal/resolve/{signal_id}", response_model=dict)
+async def manual_resolve_signal(signal_id: int, current_user: User = Depends(get_current_user)):
+    """
+    Ручной запуск авторазрешения сигнала (win/lose) по signal_id.
+    Используйте после истечения экспирации, если автомат не сработал.
+    """
+    result = await resolve_signal_outcome(signal_id)
+    return result
 from fastapi import APIRouter, Depends, HTTPException as FastAPIHTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -13,9 +30,12 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User, SignalUsage, PocketOptionUser
 from app.balance_utils import get_user_balance
-from app.po_models import POSignal
+from app.po_models import POSignal, SignalDirection, SignalStrength, SignalStatus, SignalResult, StrategyType
 from app.config import get_settings
 from app.ml_signal_generator import get_ml_generator
+from app.advanced_signal_analyzer import AdvancedSignalAnalyzer
+from app.entry_point_analyzer import calculate_optimal_entry_and_expiry
+from app.unified_signal_engine import get_unified_signal
 from app.po_strategies_advanced import advanced_signal_strategy, calculate_support_resistance_levels
 from app.po_strategies_enhanced import (
     detect_candlestick_patterns,
@@ -27,6 +47,7 @@ from app.po_strategies_enhanced import (
 from app.po_strategies_smart import get_smart_signal
 from app.po_strategies_ml_safe import get_safe_ml_signal
 from app.signal_limits import get_signal_limits, get_next_limit_balance
+from app.signal_learning import queue_signal_resolution, serialize_candles
 # Используем BinaryOptionsToolsV2 для получения актуальных цен
 try:
     from BinaryOptionsToolsV2 import PocketOptionAsync
@@ -35,7 +56,7 @@ try:
 except ImportError:
     USE_BOT_V2 = False
     try:
-        from app.pocketoptionapi_async.client import AsyncPocketOptionClient
+        from pocketoptionapi_async.client import AsyncPocketOptionClient
     except ImportError:
         AsyncPocketOptionClient = None
     Config = None
@@ -51,11 +72,31 @@ settings = get_settings()
 # Глобальный клиент (переиспользуется)
 _shared_client = None
 _shared_client_lock = asyncio.Lock()
+_shared_client_request_lock = asyncio.Lock()
 _shared_client_last_used = 0
 _shared_client_max_idle = 300  # 5 минут бездействия
 
 
-async def get_shared_client():
+async def _close_shared_client(client=None):
+    """Invalidate and close a shared client after a transport failure."""
+    global _shared_client, _shared_client_last_used
+
+    async with _shared_client_lock:
+        current_client = _shared_client
+        if client is not None and current_client is not client:
+            return
+
+        _shared_client = None
+        _shared_client_last_used = 0
+
+    if current_client is not None:
+        try:
+            await current_client.shutdown()
+        except Exception as close_error:
+            print(f"⚠️ Ошибка закрытия PO-соединения: {close_error}")
+
+
+async def get_shared_client(force_refresh: bool = False):
     """
     Возвращает общий клиент для всех пользователей.
     Если клиента нет или он устарел (> 5 мин) → пересоздает.
@@ -67,7 +108,7 @@ async def get_shared_client():
         now = time.time()
 
         # Если клиент жив и использовался < 5 мин назад → используем его
-        if _shared_client is not None and (now - _shared_client_last_used) < _shared_client_max_idle:
+        if not force_refresh and _shared_client is not None and (now - _shared_client_last_used) < _shared_client_max_idle:
             _shared_client_last_used = now
             return _shared_client
 
@@ -88,11 +129,7 @@ async def get_shared_client():
                 reconnect_time=5,
                 max_allowed_loops=100,
                 connection_initialization_timeout_secs=30,
-                timeout_secs=30,
-                urls=[
-                    "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket",
-                    "wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket"
-                ]
+                timeout_secs=30
             )
             _shared_client = PocketOptionAsync(ssid=ssid, config=config)
         else:
@@ -262,6 +299,7 @@ _po_pool = POConnectionPool()
 async def close_all_po_connections():
     """Закрыть все соединения (при shutdown)"""
     print("🔌 Закрытие PO соединений...")
+    await _close_shared_client()
     print("✅ PO connections cleanup complete")
 
 
@@ -365,24 +403,39 @@ async def get_signal(
         print(f"📡 BinaryOptionsToolsV2 с Connection Pool + встроенным reconnect")
 
         analyzed_candidates = []
+        observed_candidates = []
 
-        # Список OTC активов для анализа
-        currency_pairs = [
-            {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 85},
-            {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 85},
-            {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 85},
-            {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 85},
-            {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 85},
-            {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85},
-            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 85},
-            {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 85},
-            {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85},
-            {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 85},
-            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 85},
-            {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 85},
+        # OTC активы для анализа
+        otc_pairs = [
+            {"id": "EURUSD_otc", "name": "EUR/USD OTC", "payout": 85, "type": "otc"},
+            {"id": "GBPUSD_otc", "name": "GBP/USD OTC", "payout": 85, "type": "otc"},
+            {"id": "AUDUSD_otc", "name": "AUD/USD OTC", "payout": 85, "type": "otc"},
+            {"id": "USDJPY_otc", "name": "USD/JPY OTC", "payout": 85, "type": "otc"},
+            {"id": "USDCAD_otc", "name": "USD/CAD OTC", "payout": 85, "type": "otc"},
+            {"id": "USDCHF_otc", "name": "USD/CHF OTC", "payout": 85, "type": "otc"},
+            {"id": "AUDCAD_otc", "name": "AUD/CAD OTC", "payout": 85, "type": "otc"},
+            {"id": "NZDUSD_otc", "name": "NZD/USD OTC", "payout": 85, "type": "otc"},
+            {"id": "EURGBP_otc", "name": "EUR/GBP OTC", "payout": 85, "type": "otc"},
+            {"id": "EURJPY_otc", "name": "EUR/JPY OTC", "payout": 85, "type": "otc"},
+            {"id": "GBPJPY_otc", "name": "GBP/JPY OTC", "payout": 85, "type": "otc"},
+            {"id": "AUDJPY_otc", "name": "AUD/JPY OTC", "payout": 85, "type": "otc"},
         ]
+        
+        # Обычные FORWARD активы
+        
+        
+        # Объединяем оба списка
+        currency_pairs = otc_pairs 
 
-        print(f"📊 Начинаем сканирование {len(currency_pairs)} активов...")
+        print(f"📊 Начинаем сканирование {len(currency_pairs)} активов ({len(otc_pairs)} OTC FORWARD)...")
+
+        try:
+            timeframe_text = str(timeframe).lower().replace('m', '').strip()
+            requested_minutes = max(1, int(float(timeframe_text)))
+        except (TypeError, ValueError):
+            requested_minutes = 1
+        candle_period = requested_minutes * 60
+        history_offset = max(10000, candle_period * 200)
 
         # Получаем общий клиент (переиспользуется между пользователями!)
         client = await get_shared_client()
@@ -396,8 +449,10 @@ async def get_signal(
                 try:
                     print(f"\n📈 Анализ {asset['name']}...")
 
-                    # Получаем свечи (общий клиент, reconnect встроен!)
-                    hist_candles = await client.get_candles(asset['id'], 60, 10000)
+                    # The library uses this argument as the historical offset;
+                    # 10000 returns the available OTC history for analysis.
+                    async with _shared_client_request_lock:
+                        hist_candles = await client.get_candles(asset['id'], candle_period, history_offset)
 
                     if not hist_candles or len(hist_candles) < 20:
                         print(f"   ⚠️ Недостаточно данных ({len(hist_candles) if hist_candles else 0} свечей)")
@@ -421,82 +476,70 @@ async def get_signal(
                     if len(clean_candles) < 20:
                         continue
 
+                    observed_candidates.append({
+                        'asset': asset,
+                        'candles': clean_candles,
+                        'unified': get_unified_signal(clean_candles),
+                    })
+
                     # ==========================================================
-                    # ГИБРИДНЫЙ АНАЛИЗ (Smart System + ML)
+                    # УНИФИЦИРОВАННЫЙ АНАЛИЗ (все стратегии + entry + expiry)
                     # ==========================================================
                     
-                    # 1. Smart System (Правила и режимы рынка)
-                    smart_res = get_smart_signal(clean_candles)
+                    unified_result = get_unified_signal(clean_candles)
                     
-                    # 2. ML (Безопасный режим - не ломает систему при ошибке)
-                    ml_res = get_safe_ml_signal(clean_candles)
+                    direction = unified_result.get('signal')
+                    final_confidence = unified_result.get('confidence', 0)
+                    optimal_expiry = unified_result.get('expiry', 5)
+                    entry_quality = unified_result.get('entry_quality', 50)
+                    strategies_used = unified_result.get('strategies_used', [])
+                    best_strategy = unified_result.get('best_strategy', 'unknown')
+                    fallback = unified_result.get('fallback', False)
                     
                     signal = None
-                    final_confidence = 0
-                    direction = None
                     
-                    # Логика слияния сигналов
-                    if smart_res.get('signal') and smart_res.get('confidence', 0) > 60:
-                        direction = smart_res['signal']
-                        final_confidence = smart_res['confidence']
+                    if direction and final_confidence > 45:
+                        print(f"   🎯 УНИФИЦИРОВАННЫЙ АНАЛИЗ:")
+                        print(f"      Сигнал: {direction.upper()}")
+                        print(f"      Уверенность: {final_confidence:.0f}%")
+                        print(f"      Экспирация: {optimal_expiry}м")
+                        print(f"      Качество entrada: {entry_quality:.0f}%")
+                        print(f"      Стратегии: {', '.join(strategies_used)}")
+                        if fallback:
+                            print(f"      ⚠️  Режим FALLBACK (LIMITED MODE)")
                         
-                        # Проверяем ML
-                        if ml_res.get('signal'):
-                            if ml_res['signal'] == direction:
-                                # Совпадение! Усиливаем сигнал
-                                final_confidence += 10
-                                print(f"   🤖 ML подтверждает сигнал (+10%)")
-                            else:
-                                # Конфликт! Снижаем уверенность
-                                final_confidence -= 15
-                                print(f"   ⚠️ ML против сигнала (-15%)")
-                        
-                        # Если после коррекции уверенность все еще высокая
-                        if final_confidence > 65:
-                            signal = {
-                                "signal_type": direction,
-                                "strength": "strong" if final_confidence > 80 else "medium",
-                                "confidence": f"{final_confidence:.0f}%",
-                                "current_price": clean_candles[-1]['close'],
-                                "expiry_minutes": 5,
-                                "pair_name": asset['name'],
-                                "trend": 'neutral',
-                                "rsi": 50,
-                                "pattern_detected": "HYBRID" if ml_res.get('signal') else "SMART",
-                                "payout": "85%",
-                                "db_strategy": "HYBRID_SYSTEM",
-                                "ml_accuracy": ml_res.get('confidence', 0)
-                            }
-                            print(f"   🎯 Итоговый сигнал: {direction.upper()} ({final_confidence:.0f}%)")
-                    
-                    # Если точка входа плохая (<45%), отменяем сделку
-                    if signal:
-                        sr_levels = calculate_support_resistance_levels(clean_candles)
-                        entry_eval = evaluate_entry_points(clean_candles, signal['signal_type'], sr_levels)
-                        
-                        # Жесткий фильтр: если точка входа плохая (<45%), отменяем сделку
-                        if entry_eval['percentage'] < 45:
-                            print(f"   ❌ Точка входа слабая ({entry_eval['percentage']:.0f}%) - ОТМЕНА")
+                        # Финальная проверка по entry качеству
+                        if entry_quality < 60:
+                            print(f"   ❌ Точка входа критически плохая ({entry_quality:.0f}%) - ОТМЕНА")
+                            direction = None
                             signal = None
                         else:
-                            # Корректируем уверенность на основе точки входа
-                            entry_bonus = (entry_eval['percentage'] - 50) / 2 # +/- от 0 до 25%
+                            # Корректировка confidence по entry quality
+                            if entry_quality >= 80:
+                                confidence_adjustment = 5
+                            elif entry_quality >= 60:
+                                confidence_adjustment = 0
+                            else:
+                                confidence_adjustment = -5
                             
-                            current_conf = float(signal['confidence'].replace('%', ''))
-                            new_conf = max(50, min(98, current_conf + entry_bonus))
+                            final_confidence = max(40, min(98, final_confidence + confidence_adjustment))
                             
-                            signal['confidence'] = f"{new_conf:.0f}%"
-                            signal['support_resistance'] = {
-                                'nearest_support': sr_levels.get('nearest_support'),
-                                'nearest_resistance': sr_levels.get('nearest_resistance'),
-                                'adjustment': entry_bonus
+                            signal = {
+                                "signal_type": direction,
+                                "strength": "strong" if final_confidence > 80 else ("medium" if final_confidence > 65 else "weak"),
+                                "confidence": f"{final_confidence:.0f}%",
+                                "current_price": clean_candles[-1]['close'],
+                                "expiry_minutes": optimal_expiry,
+                                "pair_name": asset['name'],
+                                "trend": unified_result.get('trend', 'neutral'),
+                                "rsi": unified_result.get('rsi', 50),
+                                "pattern_detected": best_strategy.upper(),
+                                "payout": "85%",
+                                "db_strategy": "UNIFIED_ANALYSIS",
+                                "entry_quality": f"{entry_quality:.0f}%",
+                                "strategies_count": len(strategies_used)
                             }
-                            signal['entry_evaluation'] = {
-                                'score': entry_eval['percentage'],
-                                'reason': entry_eval['reason']
-                            }
-                            print(f"   🎯 Итоговая уверенность: {new_conf:.0f}% (Вход: {entry_eval['percentage']:.0f}%)")
-
+                    
                     # Добавляем в кандидаты
                     if signal:
                         try:
@@ -513,6 +556,10 @@ async def get_signal(
                                 'confidence': final_conf,
                                 'volatility_pct': volatility_pct,
                                 'candles_count': len(clean_candles),
+                                'candles': clean_candles,
+                                'best_strategy': best_strategy,
+                                'strategies_used': strategies_used,
+                                'entry_quality': entry_quality,
                                 'sr_levels': signal.get('support_resistance', {}),
                                 'combined_analysis': signal.get('strategy_consensus', {}),
                                 'pro_analysis': signal.get('pro_consensus', {})
@@ -525,15 +572,16 @@ async def get_signal(
                     failed_assets += 1
                     print(f"   ❌ Ошибка анализа {asset['id']}: {e}")
 
-                    # Используем встроенный reconnect
+                    # A closed channel cannot be repaired reliably by reusing
+                    # the same client. Drop it and create a fresh connection.
                     if USE_BOT_V2:
-                        print(f"   🔄 Пробуем reconnect...")
+                        print(f"   🔄 Пересоздаём соединение...")
                         try:
-                            await client.reconnect()
-                            await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
-                            print(f"   ✅ Reconnect успешен")
+                            await _close_shared_client(client)
+                            client = await get_shared_client(force_refresh=True)
+                            print(f"   ✅ Новое соединение создано")
                         except Exception as reconnect_err:
-                            print(f"   ❌ Reconnect не удался: {reconnect_err}")
+                            print(f"   ❌ Пересоздание соединения не удалось: {reconnect_err}")
 
                     if failed_assets >= max_failed:
                         print(f"   ⚠️ Слишком много ошибок ({failed_assets}), останавливаем")
@@ -550,7 +598,45 @@ async def get_signal(
 
         # === Выбираем лучший актив по уверенности ===
         if not analyzed_candidates:
-            raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
+            if not observed_candidates:
+                raise FastAPIHTTPException(status_code=503, detail="Нет данных для анализа")
+
+            # Last-resort response: always return an explicit low-confidence
+            # signal rather than inventing a strong setup from missing data.
+            fallback_candidate = max(
+                observed_candidates,
+                key=lambda item: item['unified'].get('confidence', 0)
+            )
+            fallback_candles = fallback_candidate['candles']
+            closes = [c['close'] for c in fallback_candles[-3:]]
+            fallback_direction = 'call' if closes[-1] >= closes[0] else 'put'
+            fallback_price = fallback_candles[-1]['close']
+            fallback_signal = {
+                'signal_type': fallback_direction,
+                'strength': 'weak',
+                'confidence': '50%',
+                'current_price': fallback_price,
+                'expiry_minutes': requested_minutes,
+                'pair_name': fallback_candidate['asset']['name'],
+                'trend': 'bullish' if fallback_direction == 'call' else 'bearish',
+                'rsi': 50,
+                'pattern_detected': 'LOW_CONFIDENCE_FALLBACK',
+                'payout': '85%',
+                'db_strategy': 'LOW_CONFIDENCE_FALLBACK',
+                'entry_quality': '0%',
+                'warning': 'Нет подтверждённого торгового сетапа; сигнал резервный',
+            }
+            analyzed_candidates.append({
+                'asset': fallback_candidate['asset'],
+                'signal': fallback_signal,
+                'confidence': 50.0,
+                'volatility_pct': 0.0,
+                'candles_count': len(fallback_candles),
+                'candles': fallback_candles,
+                'best_strategy': 'LOW_CONFIDENCE_FALLBACK',
+                'strategies_used': [],
+                'entry_quality': 0,
+            })
 
         # Сортируем по уверенности
         analyzed_candidates.sort(key=lambda x: x['confidence'], reverse=True)
@@ -559,6 +645,11 @@ async def get_signal(
         best_asset = best_candidate['asset']
         signal = best_candidate['signal']
         volatility = best_candidate['volatility_pct']
+        best_candles = best_candidate.get('candles', [])
+        best_strategy = best_candidate.get('best_strategy', 'unknown')
+        strategies_used = best_candidate.get('strategies_used', [])
+        entry_quality = best_candidate.get('entry_quality', 50)
+        signal_strength_value = signal.get('strength', 'weak')
 
         print(f"\n{'='*60}")
         print(f"🏆 ЛУЧШИЙ АКТИВ: {best_asset['name']}")
@@ -596,18 +687,18 @@ async def get_signal(
             print(f"📡 Real-time стрим {best_asset['id']}...")
             prices = []
 
-            async for candle in await client.subscribe_symbol(best_asset['id']):
-                price = candle.get('close', candle.get('price', 0))
-                try:
-                    price = float(price)
-                    prices.append(price)
-                    print(f"   💰 Цена: {price:.5f}")
-                except:
-                    pass
+            async with _shared_client_request_lock:
+                async for candle in await client.subscribe_symbol(best_asset['id']):
+                    price = candle.get('close', candle.get('price', 0))
+                    try:
+                        price = float(price)
+                        prices.append(price)
+                        print(f"   💰 Цена: {price:.5f}")
+                    except:
+                        pass
 
-                # Ждем 5 секунд для получения real-time цены
-                if len(prices) >= 5:
-                    break
+                    if len(prices) >= 5:
+                        break
 
             if prices:
                 realtime_price = prices[-1]
@@ -617,14 +708,32 @@ async def get_signal(
 
         except Exception as e:
             print(f"   ⚠️ Ошибка real-time: {e}")
-            # Пробуем reconnect
+            # Do not reuse a client whose channel has already failed.
             if USE_BOT_V2:
                 try:
-                    print(f"   🔄 Reconnect...")
-                    await client.reconnect()
-                    await asyncio.wait_for(client.wait_for_assets(timeout=30.0), timeout=35.0)
+                    print(f"   🔄 Пересоздаём соединение после ошибки realtime...")
+                    await _close_shared_client(client)
+                    client = await get_shared_client(force_refresh=True)
                 except:
                     pass
+
+        historical_price = float(signal.get('current_price', 0))
+        if historical_price > 0 and realtime_price > 0:
+            price_drift_pct = abs(realtime_price - historical_price) / historical_price * 100
+            print(f"   📏 Рассинхронизация истории и realtime: {price_drift_pct:.3f}%")
+
+            # Allow normal movement during a multi-minute scan, but still
+            # reject a genuinely stale analysis. The limit follows the
+            # observed volatility and is capped to protect the entry.
+            drift_limit_pct = max(0.15, min(0.35, volatility * 0.65))
+            print(f"   📏 Допустимое расхождение: {drift_limit_pct:.3f}%")
+            if price_drift_pct > drift_limit_pct:
+                signal['confidence'] = '45%'
+                signal['strength'] = 'weak'
+                signal['warning'] = (
+                    f"Цена изменилась на {price_drift_pct:.2f}% во время анализа; "
+                    "уверенность снижена"
+                )
 
         # Обновляем цену в сигнале
         signal['current_price'] = realtime_price
@@ -632,44 +741,95 @@ async def get_signal(
         # === РАСЧЕТ ЭКСПИРАЦИИ ===
         # Используем расширенную логику расчета
         
+        # === РАСЧЁТ ОПТИМАЛЬНОЙ ЭКСПИРАЦИИ (1-15 минут) ===
+        # На основе волатильности, уверенности сигнала и качества точки входа
+
         entry_score = best_candidate.get('entry_evaluation', {}).get('score', 50)
         trend_match = best_candidate.get('entry_evaluation', {}).get('is_good_entry', False)
-        
-        # Базовая экспирация от волатильности
-        if volatility < 0.15:
-            base_expiry = 5  # Низкая волатильность -> дольше ждем движения
+        signal_confidence = float(best_candidate['confidence'])
+
+        # 1. Базовая экспирация от волатильности (расширенный диапазон)
+        if volatility < 0.10:
+            base_expiry = 12  # Очень низкая -> долго ждем
+        elif volatility < 0.20:
+            base_expiry = 10  # Низкая волатильность
         elif volatility < 0.35:
-            base_expiry = 3  # Средняя
-        elif volatility < 0.60:
-            base_expiry = 2  # Высокая -> быстрее забираем прибыль
+            base_expiry = 8   # Средняя-низкая
+        elif volatility < 0.50:
+            base_expiry = 6   # Средняя
+        elif volatility < 0.70:
+            base_expiry = 5   # Средняя-высокая
+        elif volatility < 1.0:
+            base_expiry = 3   # Высокая -> быстрее
         else:
-            base_expiry = 1  # Очень высокая -> скальпинг
+            base_expiry = 1   # Очень высокая -> скальпинг
 
-        # Корректировка от качества входа
+        # 2. Корректировка от уверенности сигнала
+        confidence_adjustment = 0
+        if signal_confidence >= 85:
+            # Очень высокая уверенность -> можно дольше держать
+            confidence_adjustment = 2
+        elif signal_confidence >= 75:
+            confidence_adjustment = 1
+        elif signal_confidence >= 65:
+            confidence_adjustment = 0
+        elif signal_confidence < 55:
+            # Низкая уверенность -> быстро выходим
+            confidence_adjustment = -2
+
+        # 3. Корректировка от качества входа
         entry_adjustment = 0
-        if entry_score >= 70:
-            # Отличный вход -> можно держать дольше, так как сигнал надежный
+        if entry_score >= 80:
+            entry_adjustment = 2  # Отличный вход
+        elif entry_score >= 65:
             entry_adjustment = 1
+        elif entry_score >= 50:
+            entry_adjustment = 0
         elif entry_score < 40:
-            # Плохой вход -> если уж берем, то быстро, чтобы минимизировать риск
-            entry_adjustment = -1
+            entry_adjustment = -2  # Плохой вход
 
-        # Корректировка от тренда
+        # 4. Корректировка от тренда
         trend_adjustment = 0
         if trend_match:
-            # Если тренд совпадает, даем сделке время развиться
-            trend_adjustment = 1
+            trend_adjustment = 2  # Тренд совпадает -> даем время
         else:
-            # Если тренд против, лучше выйти быстрее
-            trend_adjustment = -1
+            trend_adjustment = -1  # Тренд против -> быстрее выходим
 
-        # Итоговая экспирация (от 1 до 10 минут)
-        optimal_timeframe = max(1, min(10, base_expiry + entry_adjustment + trend_adjustment))
-        
-        print(f"   ⏱️ База: {base_expiry} мин, Вход: {entry_adjustment:+}, Тренд: {trend_adjustment:+}")
-        print(f"   🎯 Итоговая экспирация: {optimal_timeframe} мин")
+        # Итоговая экспирация (от 1 до 15 минут)
+        optimal_timeframe = max(1, min(15, base_expiry + confidence_adjustment + entry_adjustment + trend_adjustment))
+
+        # Рассчитываем уверенность успешности сигнала
+        # На основе совпадения всех факторов
+        success_confidence = 50  # базовая
+
+        # Вклад волатильности (оптимальная волатильность 0.3-0.7)
+        if 0.3 <= volatility <= 0.7:
+            success_confidence += 15
+        elif 0.2 <= volatility < 0.3 or 0.7 < volatility <= 1.0:
+            success_confidence += 10
+        else:
+            success_confidence += 5
+
+        # Вклад уверенности сигнала
+        success_confidence += (signal_confidence - 50) * 0.4
+
+        # Вклад качества входа
+        success_confidence += (entry_score - 50) * 0.2
+
+        # Вклад тренда
+        if trend_match:
+            success_confidence += 10
+        else:
+            success_confidence -= 5
+
+        success_confidence = max(50, min(99, success_confidence))
+
+        print(f"   ⏱️ База: {base_expiry} мин, Уверенность: {confidence_adjustment:+}, Вход: {entry_adjustment:+}, Тренд: {trend_adjustment:+}")
+        print(f"   🎯 Оптимальная экспирация: {optimal_timeframe} мин")
+        print(f"   📊 Уверенность успешности: {success_confidence:.1f}%")
 
         signal['expiry_minutes'] = optimal_timeframe
+        signal['success_confidence'] = round(success_confidence, 1)
 
         print(f"\n🎯 ИТОГОВЫЙ СИГНАЛ:")
         print(f"   Актив: {best_asset['name']}")
@@ -677,6 +837,47 @@ async def get_signal(
         print(f"   Уверенность: {best_candidate['confidence']:.1f}%")
         print(f"   Цена: {realtime_price:.5f}")
         print(f"   Экспирация: {optimal_timeframe} мин")
+
+        expires_at = datetime.utcnow() + timedelta(minutes=optimal_timeframe)
+
+        strategy_type_enum = StrategyType.MACHINE_LEARNING if (
+            strategy_type.lower() == 'ml' or 'ml' in best_strategy.lower()
+        ) else StrategyType.INDICATORS
+
+        po_signal = POSignal(
+            signal_type=SignalDirection.CALL if signal.get('signal_type') == 'call' else SignalDirection.PUT,
+            strength=SignalStrength.STRONG if signal_strength_value == 'strong' else SignalStrength.MEDIUM if signal_strength_value == 'moderate' else SignalStrength.WEAK,
+            confidence=float(best_candidate['confidence']),
+            asset_name=best_asset['name'],
+            amount=1.0,
+            timeframe=optimal_timeframe * 60,
+            entry_price=float(realtime_price),
+            current_price=float(realtime_price),
+            strategy_type=strategy_type_enum,
+            strategy_data={
+                **signal,
+                "market": market,
+                "requested_strategy": strategy_type,
+                "best_strategy": best_strategy,
+                "strategies_used": strategies_used,
+                "entry_quality": entry_quality,
+            },
+            status=SignalStatus.ACTIVE,
+            activated_at=datetime.utcnow(),
+            expires_at=expires_at,
+            user_id=current_user.id,
+            price_history=serialize_candles(best_candles),
+            indicators_snapshot={
+                "rsi": signal.get("rsi", 50),
+                "trend": signal.get("trend", "neutral"),
+                "volatility": signal.get("volatility", 0),
+                "success_confidence": signal.get("success_confidence"),
+            },
+            rsi=signal.get("rsi", 50),
+            notes=f"Generated by signal_po.py using {best_strategy}",
+        )
+
+        db.add(po_signal)
 
         # === СОХРАНЕНИЕ В БД ===
         try:
@@ -687,6 +888,11 @@ async def get_signal(
             )
             db.add(signal_usage)
             await db.commit()
+            await db.refresh(po_signal)
+            print(f"[DEBUG] queue_signal_resolution called for signal_id={po_signal.id}, expires_at={po_signal.expires_at}")
+            import logging
+            logging.getLogger("signal_po").info(f"[DEBUG] queue_signal_resolution called for signal_id={po_signal.id}, expires_at={po_signal.expires_at}")
+            queue_signal_resolution(po_signal.id, po_signal.expires_at)
             print(f"✅ Сохранено в БД")
         except Exception as db_err:
             print(f"⚠️ Ошибка БД: {db_err}")
@@ -697,7 +903,7 @@ async def get_signal(
 
         return {
             "success": True,
-            "signal": format_signal_response(signal, user_balance),
+            "signal": format_signal_response(signal, user_balance, po_signal.id, po_signal.expires_at),
             "balance": float(user_balance),
             "market_data_summary": {
                 "assets_analyzed": len(currency_pairs),
@@ -1038,7 +1244,8 @@ def generate_signal_from_candles(
         "trend": trend,
         "rsi": int(rsi),
         "pattern_detected": strategy_type,
-        "payout": f"{asset['payout']}%"
+        "payout": f"{asset['payout']}%",
+        "db_strategy": "INDICATORS"
     }
 
 
@@ -1136,7 +1343,12 @@ def generate_signal_with_indicators(asset: dict, strategy_type: str, timeframe: 
     }
 
 
-def format_signal_response(signal: dict, balance: float) -> dict:
+def format_signal_response(
+    signal: dict,
+    balance: float,
+    db_signal_id: int | None = None,
+    expires_at: datetime | None = None
+) -> dict:
     """Форматирование сигнала для frontend"""
     try:
         direction = "BUY" if signal.get("signal_type") == "call" else "SELL"
@@ -1172,9 +1384,9 @@ def format_signal_response(signal: dict, balance: float) -> dict:
             if isinstance(expiry_timestamp, str):
                 expiry_time = datetime.fromisoformat(expiry_timestamp.replace('Z', '+00:00'))
             else:
-                expiry_time = datetime.utcnow() + timedelta(minutes=signal.get("expiry_minutes", 3))
+                expiry_time = expires_at or (datetime.utcnow() + timedelta(minutes=signal.get("expiry_minutes", 3)))
         except:
-            expiry_time = datetime.utcnow() + timedelta(minutes=signal.get("expiry_minutes", 3))
+            expiry_time = expires_at or (datetime.utcnow() + timedelta(minutes=signal.get("expiry_minutes", 3)))
 
         try:
             if isinstance(valid_until_timestamp, str):
@@ -1186,6 +1398,9 @@ def format_signal_response(signal: dict, balance: float) -> dict:
 
         signal_strength = "strong" if confidence > 75 else "moderate" if confidence > 65 else "weak"
 
+        # Получаем уверенность успешности сигнала
+        success_conf = signal.get("success_confidence", confidence)
+
         return {
             "pair": signal.get("pair_name", "EUR/USD"),
             "direction": direction,
@@ -1194,6 +1409,7 @@ def format_signal_response(signal: dict, balance: float) -> dict:
             "expiry_time": expiry_time.strftime("%H:%M"),
             "valid_until": valid_until.strftime("%H:%M:%S"),
             "confidence": f"{int(confidence)}%",
+            "success_confidence": round(float(success_conf), 1),
             "entry_price": f"{float(current_price):.5f}",
             "take_profit": f"{float(current_price) * tp_multiplier:.5f}",
             "stop_loss": f"{float(current_price) * sl_multiplier:.5f}",
@@ -1201,10 +1417,13 @@ def format_signal_response(signal: dict, balance: float) -> dict:
             "provider": "Pocket Option API",
             "payout": signal.get("payout", "80%"),
             "signal_id": f"po_{int(datetime.utcnow().timestamp())}",
+            "db_signal_id": db_signal_id,
             "generated_at": datetime.utcnow().isoformat(),
+            "expiry_timestamp": expiry_time.isoformat(),
             "reasoning": f"{signal.get('pair_name', 'EUR/USD')}: {direction} ({confidence}%). "
                         f"Экспирация: {signal.get('expiry_minutes', 3)} мин. "
                         f"Payout: {signal.get('payout', '80%')}",
+            "volatility": signal.get("volatility", 0),
             "market_data": {
                 "current_price": f"{float(current_price):.5f}",
                 "trend": signal.get("trend", "neutral"),
@@ -1292,6 +1511,46 @@ async def get_signals_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка получения истории: {str(e)}"
         )
+
+
+@router.get("/po/signal/{signal_id}", response_model=dict)
+async def get_signal_status(
+    signal_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return signal status and resolve it automatically after expiration."""
+    result = await db.execute(
+        select(POSignal).where(
+            POSignal.id == signal_id,
+            POSignal.user_id == current_user.id,
+        )
+    )
+    signal = result.scalar_one_or_none()
+    if signal is None:
+        raise FastAPIHTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сигнал не найден")
+
+    if signal.status != SignalStatus.COMPLETED and signal.expires_at:
+        expires_at = signal.expires_at.replace(tzinfo=None) if signal.expires_at.tzinfo else signal.expires_at
+        if datetime.utcnow() >= expires_at:
+            await resolve_signal_outcome(signal_id)
+            await db.refresh(signal)
+
+    return {
+        "success": True,
+        "signal": {
+            "id": signal.id,
+            "signal_type": signal.signal_type.value,
+            "asset_name": signal.asset_name,
+            "status": signal.status.value,
+            "result": signal.result.value if signal.result else SignalResult.PENDING.value,
+            "profit_loss": signal.profit_loss,
+            "entry_price": signal.entry_price,
+            "current_price": signal.current_price,
+            "expires_at": signal.expires_at.isoformat() if signal.expires_at else None,
+            "completed_at": signal.completed_at.isoformat() if signal.completed_at else None,
+        },
+    }
 
 
 @router.get("/assets", response_model=dict)

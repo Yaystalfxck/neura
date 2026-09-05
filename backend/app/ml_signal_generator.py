@@ -7,8 +7,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, balanced_accuracy_score
 from typing import List, Dict, Optional, Tuple
 import logging
 
@@ -29,6 +28,7 @@ class MLSignalGenerator:
         self.lookback = lookback
         self.model = None
         self.model_accuracy = 0.0
+        self.model_balanced_accuracy = 0.0
         self.last_prediction = None
 
     def calculate_indicators(self, candles: List[Dict]) -> pd.DataFrame:
@@ -179,7 +179,7 @@ class MLSignalGenerator:
         low = df['low'].rolling(period).min()
         return (high + low) / 2
     
-    def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def prepare_features(self, df: pd.DataFrame, include_target: bool = True) -> pd.DataFrame:
         """
         Подготовка признаков для модели с использованием всех индикаторов
 
@@ -277,32 +277,34 @@ class MLSignalGenerator:
         features['psar_below_price'] = (df['psar'] < df['close']).astype(int)
         features['psar_reversal'] = (df['psar'].diff() != 0).astype(int)
 
-        # === Целевая переменная (СБАЛАНСИРОВАННАЯ) ===
-        # Используем несколько горизонтов для более точного предсказания
-        future_3 = df['close'].shift(-3)
-        future_5 = df['close'].shift(-5)
-        future_8 = df['close'].shift(-8)
-
-        # Определяем направление по большинству горизонтов
-        up_3 = (future_3 > df['close']).astype(int)
-        up_5 = (future_5 > df['close']).astype(int)
-        up_8 = (future_8 > df['close']).astype(int)
-
-        # Суммируем "голоса" направлений
-        up_votes = up_3 + up_5 + up_8
-
-        # CALL если большинство горизонтов показывают рост (2 из 3)
-        call_signal = (up_votes >= 2)
-
-        # PUT если большинство горизонтов показывают падение (2 из 3)
-        put_signal = (up_votes <= 1)
-
-        # Итоговая целевая: 1=CALL, 0=PUT
+        # === Целевая переменная (ОПТИМИЗИРОВАНА ДЛЯ 60сек EXPIRY) ===
+        # Для 60-секундных свечей: смотрим только на 1-2 следующие свечи
+        # Нельзя предвидеть 3-8 свечей в реальной торговле
+        future_1 = df['close'].shift(-1)  # Следующая свеча
+        future_2 = df['close'].shift(-2)  # +2 свечи для подтверждения
+        valid_future = future_1.notna() & future_2.notna()
+        
+        up_1 = (future_1 > df['close']).astype(int)  # Вверх через 1 свечу
+        up_2 = (future_2 > df['close']).astype(int)  # Вверх через 2 свечи
+        
+        # CALL: требуем подтверждение на обеих свечах (не ловим шум)
+        call_signal = ((up_1 == 1) & (up_2 == 1)).astype(int)
+        
+        # PUT: требуем подтверждение на обеих свечах  
+        put_signal = ((up_1 == 0) & (up_2 == 0)).astype(int)
+        
+        # Итоговая целевая: 1=CALL, 0=PUT.
+        # Важно: неясные случаи нельзя автоматически считать PUT,
+        # иначе обучение получает искусственный перекос в сторону продаж.
         features['target'] = call_signal.astype(int)
         features['is_put'] = put_signal.astype(int)
-        features['confidence_votes'] = up_votes  # Для оценки уверенности (0-3)
+        features['confidence_votes'] = up_1 + up_2  # 0-2 уровень уверенности
 
-        return features.dropna()
+        if not include_target:
+            return features.drop(columns=['target', 'is_put', 'confidence_votes']).dropna()
+
+        unambiguous = valid_future & ((call_signal == 1) | (put_signal == 1))
+        return features[unambiguous].dropna()
     
     def train(self, candles: List[Dict]) -> bool:
         """
@@ -337,9 +339,17 @@ class MLSignalGenerator:
             class_balance = y.value_counts()
             logger.info(f"Баланс классов: CALL={class_balance.get(1, 0)}, PUT={class_balance.get(0, 0)}")
 
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y
-            )
+            if y.nunique() < 2 or y.value_counts().min() < 5:
+                logger.warning("Недостаточно представителей обоих классов для ML")
+                return False
+
+            # Time-series split: future candles must never influence the past.
+            split_index = max(1, int(len(X) * 0.8))
+            X_train, X_test = X.iloc[:split_index], X.iloc[split_index:]
+            y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
+            if y_test.nunique() < 2:
+                logger.warning("Тестовый временной отрезок содержит только один класс")
+                return False
 
             # Обучение модели (улучшенная)
             self.model = RandomForestClassifier(
@@ -350,7 +360,7 @@ class MLSignalGenerator:
                 max_features='sqrt',        # Кол-во признаков для сплита
                 random_state=42,
                 n_jobs=-1,
-                class_weight='balanced',    # Автоматический баланс классов
+                class_weight='balanced_subsample',
                 bootstrap=True              # Bootstrap выборка
             )
             self.model.fit(X_train, y_train)
@@ -358,6 +368,7 @@ class MLSignalGenerator:
             # Оценка точности
             y_pred = self.model.predict(X_test)
             self.model_accuracy = accuracy_score(y_test, y_pred)
+            self.model_balanced_accuracy = balanced_accuracy_score(y_test, y_pred)
 
             # Сохраняем информацию о балансе для predict
             self._call_ratio = class_balance.get(1, 0) / len(y) if len(y) > 0 else 0.5
@@ -372,9 +383,13 @@ class MLSignalGenerator:
                 )[:10]
                 logger.info(f"Top 10 важных признаков: {important_features}")
 
-            logger.info(f"ML модель обучена. Точность: {self.model_accuracy:.2f}, CALL%: {self._call_ratio:.2f}, PUT%: {self._put_ratio:.2f}")
+            logger.info(
+                f"ML модель обучена. Accuracy: {self.model_accuracy:.2f}, "
+                f"Balanced accuracy: {self.model_balanced_accuracy:.2f}, "
+                f"CALL%: {self._call_ratio:.2f}, PUT%: {self._put_ratio:.2f}"
+            )
 
-            return self.model_accuracy > 0.50
+            return self.model_balanced_accuracy >= 0.55
 
         except Exception as e:
             logger.error(f"Ошибка обучения ML модели: {e}")
@@ -401,7 +416,7 @@ class MLSignalGenerator:
                 return None
 
             # Подготовка признаков для последней свечи
-            features = self.prepare_features(df)
+            features = self.prepare_features(df, include_target=False)
             if features.empty:
                 return None
 
@@ -450,8 +465,12 @@ class MLSignalGenerator:
 
             # === ГЕНЕРАЦИЯ СИГНАЛА С ВАЛИДАЦИЕЙ ===
             
-            # Минимальный порог уверенности
+            # Require a meaningful, symmetric probability margin.
             min_confidence = 0.55
+            probability_margin = abs(call_prob - put_prob)
+            if probability_margin < 0.08:
+                logger.info(f"⏸️ ML: слабое различие вероятностей (PUT={put_prob:.2f}, CALL={call_prob:.2f})")
+                return None
 
             if call_prob > min_confidence:
                 # CALL сигнал

@@ -297,25 +297,25 @@ def evaluate_entry_points(candles: List[Dict], signal_type: str, sr_levels: Dict
         
         if signal_type == 'call':
             # Для CALL хорошо быть близко к поддержке
-            if dist_to_support < 0.3:
+            if dist_to_support < 0.5:
                 sr_score = 30
                 sr_reason = f"Цена у поддержки ({dist_to_support:.2f}%)"
-            elif dist_to_support < 0.5:
+            elif dist_to_support < 0.8:
                 sr_score = 20
                 sr_reason = f"Цена близко к поддержке ({dist_to_support:.2f}%)"
             else:
-                sr_score = 5
+                sr_score = 10
                 sr_reason = f"Цена далеко от поддержки ({dist_to_support:.2f}%)"
         else:  # put
             # Для PUT хорошо быть близко к сопротивлению
-            if dist_to_resistance < 0.3:
+            if dist_to_resistance < 0.5:
                 sr_score = 30
                 sr_reason = f"Цена у сопротивления ({dist_to_resistance:.2f}%)"
-            elif dist_to_resistance < 0.5:
+            elif dist_to_resistance < 0.8:
                 sr_score = 20
                 sr_reason = f"Цена близко к сопротивлению ({dist_to_resistance:.2f}%)"
             else:
-                sr_score = 5
+                sr_score = 10
                 sr_reason = f"Цена далеко от сопротивления ({dist_to_resistance:.2f}%)"
 
     # 2. Оценка тренда (последние 5 свечей)
@@ -333,6 +333,9 @@ def evaluate_entry_points(candles: List[Dict], signal_type: str, sr_levels: Dict
             elif up_count >= 3:
                 trend_score = 15
                 trend_reason = "Восходящий тренд"
+            elif up_count >= 2:
+                trend_score = 10
+                trend_reason = "Умеренный восходящий тренд"
             else:
                 trend_score = 5
                 trend_reason = "Слабый/нисходящий тренд"
@@ -344,6 +347,9 @@ def evaluate_entry_points(candles: List[Dict], signal_type: str, sr_levels: Dict
             elif down_count >= 3:
                 trend_score = 15
                 trend_reason = "Нисходящий тренд"
+            elif down_count >= 2:
+                trend_score = 10
+                trend_reason = "Умеренный нисходящий тренд"
             else:
                 trend_score = 5
                 trend_reason = "Слабый/восходящий тренд"
@@ -364,8 +370,8 @@ def evaluate_entry_points(candles: List[Dict], signal_type: str, sr_levels: Dict
                 momentum_score = 10
                 momentum_reason = "Последние 2 свечи вверх"
             else:
-                momentum_score = 0
-                momentum_reason = "Нет восходящего моментума"
+                momentum_score = 5
+                momentum_reason = "Слабый восходящий моментум"
         else:  # put
             if closes_3[2] < closes_3[1] < closes_3[0]:
                 momentum_score = 20
@@ -374,8 +380,8 @@ def evaluate_entry_points(candles: List[Dict], signal_type: str, sr_levels: Dict
                 momentum_score = 10
                 momentum_reason = "Последние 2 свечи вниз"
             else:
-                momentum_score = 0
-                momentum_reason = "Нет нисходящего моментума"
+                momentum_score = 5
+                momentum_reason = "Слабый нисходящий моментум"
 
     # 4. Оценка RSI
     rsi_score = 0

@@ -56,12 +56,12 @@ class PocketOptionClient:
     async def connect(self) -> bool:
         """Подключение к WebSocket"""
         try:
-            logger.info(f"🔌 Подключение к {self.WS_URL[:50]}...")
+            logger.info(f"🔌 Подключение к {self.ws_url[:50]}...")
             
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             
             self.websocket = await websockets.connect(
-                self.WS_URL,
+                self.ws_url,
                 ssl=ssl_context,
                 ping_interval=25,
                 ping_timeout=10,

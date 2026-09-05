@@ -20,6 +20,7 @@ from app.po_strategies import get_strategy, MartingaleStrategy, IndicatorStrateg
 from app.po_websocket_service import get_pocket_option_websocket, create_pocket_option_websocket, _pocket_option_ws
 from app.tradingview_collector import TradingViewCollector
 from app.po_backtester import PocketOptionBacktester, run_quick_backtest
+from app.signal_learning import queue_signal_resolution, retrain_ml_from_db, serialize_candles
 
 router = APIRouter(prefix="/api/po", tags=["Pocket Option Signals"])
 
@@ -207,6 +208,20 @@ async def generate_po_signal(
         confidence = signal_data.get("confidence", 50.0)
 
         # 4. Сохраняем сигнал в БД
+        strategy_enum_map = {
+            "martingale": StrategyType.MARTINGALE,
+            "indicators": StrategyType.INDICATORS,
+            "ml": StrategyType.MACHINE_LEARNING,
+        }
+
+        expires_at = datetime.utcnow() + timedelta(seconds=timeframe)
+
+        stored_signal_data = {
+            **signal_data,
+            "market": market,
+            "requested_asset": asset,
+        }
+
         po_signal = POSignal(
             signal_type=signal_type,
             strength=strength,
@@ -223,12 +238,14 @@ async def generate_po_signal(
             macd_histogram=signal_data.get("indicators", {}).get("macd_histogram"),
             cci=signal_data.get("indicators", {}).get("cci"),
             ao=signal_data.get("indicators", {}).get("ao"),
-            strategy_type=StrategyType(strategy.upper()),
-            strategy_data=signal_data,
+            strategy_type=strategy_enum_map.get(strategy.lower(), StrategyType.CUSTOM),
+            strategy_data=stored_signal_data,
             status=SignalStatus.PENDING,
             user_id=current_user.id,
-            expires_at=datetime.utcnow() + timedelta(seconds=timeframe * 2),
-            notes=f"Signal generated using {strategy} strategy"
+            expires_at=expires_at,
+            notes=f"Signal generated using {strategy} strategy",
+            indicators_snapshot=signal_data.get("indicators", {}),
+            price_history=serialize_candles(target_pair.candles),
         )
         
         db.add(po_signal)
@@ -271,6 +288,8 @@ async def generate_po_signal(
         print(f"   Направление: {direction}")
         print(f"   Уверенность: {confidence:.1f}%")
         print(f"   Стратегия: {strategy}")
+
+        queue_signal_resolution(po_signal.id, po_signal.expires_at)
 
         return response
 
@@ -406,6 +425,7 @@ async def update_signal_result(
                     ms.record_loss()
 
         await db.commit()
+        training_info = await retrain_ml_from_db()
 
         return {
             "success": True,
@@ -415,7 +435,8 @@ async def update_signal_result(
                 "result": signal.result.value,
                 "profit_loss": signal.profit_loss,
                 "completed_at": signal.completed_at.isoformat()
-            }
+            },
+            "training": training_info
         }
 
     except HTTPException:

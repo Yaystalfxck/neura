@@ -85,18 +85,25 @@ class MartingaleStrategy(TradingStrategy):
         if len(prices) < 14:
             return None
 
-        # Базовый сигнал на основе RSI
+        # Расчет RSI
         rsi = self._calculate_rsi(prices)
+        
+        # Проверка подтверждения: цена уже восстанавливается?
+        recent_closes = prices[-3:]  # Последние 3 свечи
+        is_price_bouncing_up = len(recent_closes) >= 2 and recent_closes[-1] > recent_closes[-2]
+        is_price_recovering_down = len(recent_closes) >= 2 and recent_closes[-1] < recent_closes[-2]
         
         signal_type = None
         confidence = 0.0
 
-        if rsi < 30:  # Oversold - CALL
+        # CALL: Требуем RSI < 30 И цена восстанавливается (не просто низкая)
+        if rsi < 30 and is_price_bouncing_up:  
             signal_type = SignalType.CALL
-            confidence = 70.0
-        elif rsi > 70:  # Overbought - PUT
+            confidence = 72.0  # Усилена уверенность за подтверждение
+        # PUT: Требуем RSI > 70 И цена падает (не просто высокая)
+        elif rsi > 70 and is_price_recovering_down:
             signal_type = SignalType.PUT
-            confidence = 70.0
+            confidence = 72.0
 
         if not signal_type:
             return None
@@ -553,6 +560,17 @@ class MLStrategy(TradingStrategy):
             logger.error(f"❌ Ошибка обучения модели: {e}")
 
 
+_ml_strategy_singleton: Optional[MLStrategy] = None
+
+
+def get_ml_strategy() -> MLStrategy:
+    """Singleton ML strategy used for online retraining."""
+    global _ml_strategy_singleton
+    if _ml_strategy_singleton is None:
+        _ml_strategy_singleton = MLStrategy()
+    return _ml_strategy_singleton
+
+
 # Фабрика стратегий
 def get_strategy(strategy_name: str, **kwargs) -> TradingStrategy:
     """
@@ -571,7 +589,7 @@ def get_strategy(strategy_name: str, **kwargs) -> TradingStrategy:
             max_steps=kwargs.get("max_steps", 5)
         ),
         "indicators": lambda: IndicatorStrategy(),
-        "ml": lambda: MLStrategy()
+        "ml": get_ml_strategy
     }
 
     strategy_func = strategies.get(strategy_name.lower())

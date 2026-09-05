@@ -45,6 +45,8 @@ async def startup_event():
     # BinaryOptionsToolsV2 не требует keepalive — соединения создаются по запросу
 
 
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Очистка при остановке"""

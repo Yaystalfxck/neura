@@ -8,6 +8,8 @@ from app.tradingview_collector import TradingViewCollector
 from app.otc_analyzer import OTCSignalAnalyzer
 from app.po_client_v2 import PocketOptionClient
 from app.config import get_settings
+from app.po_models import POSignal, SignalDirection, SignalStrength, SignalStatus, StrategyType
+from app.signal_learning import queue_signal_resolution, serialize_candles
 from datetime import datetime, timedelta
 import json
 from sqlalchemy import func, select as sa_select
@@ -96,16 +98,19 @@ async def get_signal(
         # 1. Получаем данные в зависимости от рынка
         analyzer = OTCSignalAnalyzer()
         best_signal = None
+        signal_candles = []
         
         if market in ['otc', 'demo']:
             # Получаем данные через PO WebSocket
             print(f"📡 Получение данных через PO WebSocket ({market})...")
 
-            # Формируем ssid сообщение для авторизации
-            auth_message = f'42["auth",{{"session":"{settings.POCKETOPTION_SESSION_TOKEN}","isDemo":1,"uid":{settings.POCKETOPTION_UID},"platform":2}}]'
-
             client = PocketOptionClient(
-                ssid=auth_message,
+                session_token=(
+                    settings.POCKETOPTION_SESSION_TOKEN_DEMO
+                    if market == 'demo' and settings.POCKETOPTION_SESSION_TOKEN_DEMO
+                    else settings.POCKETOPTION_SESSION_TOKEN
+                ),
+                uid=settings.POCKETOPTION_UID,
                 is_demo=(market == 'demo')
             )
 
@@ -131,6 +136,7 @@ async def get_signal(
                         candles = await client.get_candles(asset, int(timeframe) * 60, 100)
 
                         if candles and len(candles) >= 50:
+                            signal_candles = candles
                             prices = [c['close'] for c in candles]
                             signal = analyzer.generate_signal(prices, asset)
 
@@ -170,6 +176,7 @@ async def get_signal(
                 if not pair.candles or len(pair.candles) < 50:
                     continue
                 
+                signal_candles = pair.candles
                 prices = [c.close for c in pair.candles]
                 signal = analyzer.generate_signal(prices, pair.symbol)
                 
@@ -182,6 +189,48 @@ async def get_signal(
             best_signal = generate_fallback_signal(market)
             print("⚠️ Используем fallback сигнал")
 
+        signal_type = SignalDirection.CALL if best_signal.get("signal_type", "call") == "call" else SignalDirection.PUT
+        confidence = float(best_signal.get("confidence", 50.0))
+        strength = SignalStrength.STRONG if confidence >= 80 else SignalStrength.MEDIUM if confidence >= 65 else SignalStrength.WEAK
+        expiry_minutes = int(best_signal.get("expiry_minutes", int(timeframe)))
+        expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+        strategy_type = StrategyType.MACHINE_LEARNING if ai_type in {"ml", "neural_ai"} else StrategyType.INDICATORS
+
+        stored_signal_data = {
+            **best_signal,
+            "market": market,
+            "ai_type": ai_type,
+        }
+
+        po_signal = POSignal(
+            signal_type=signal_type,
+            strength=strength,
+            confidence=confidence,
+            asset_name=best_signal.get("symbol", best_signal.get("pair", "EUR/USD")),
+            amount=1.0,
+            timeframe=expiry_minutes * 60,
+            entry_price=best_signal.get("current_price"),
+            current_price=best_signal.get("current_price"),
+            strategy_type=strategy_type,
+            strategy_data=stored_signal_data,
+            status=SignalStatus.ACTIVE,
+            activated_at=datetime.utcnow(),
+            user_id=current_user.id,
+            expires_at=expires_at,
+            indicators_snapshot=best_signal.get("indicators", {}),
+            price_history=serialize_candles(signal_candles),
+            notes=f"Generated via /api/signal using {ai_type}",
+            rsi=best_signal.get("indicators", {}).get("rsi"),
+            macd_line=best_signal.get("indicators", {}).get("macd"),
+            macd_signal=best_signal.get("indicators", {}).get("macd_signal"),
+            macd_histogram=best_signal.get("indicators", {}).get("macd_histogram"),
+            bollinger_upper=best_signal.get("indicators", {}).get("bollinger_upper"),
+            bollinger_middle=best_signal.get("indicators", {}).get("bollinger_middle"),
+            bollinger_lower=best_signal.get("indicators", {}).get("bollinger_lower"),
+        )
+        db.add(po_signal)
+        await db.flush()
+
         # 2. Сохраняем использование сигнала
         signal_usage = SignalUsage(
             user_id=current_user.id,
@@ -189,9 +238,12 @@ async def get_signal(
         )
         db.add(signal_usage)
         await db.commit()
+        await db.refresh(po_signal)
+
+        queue_signal_resolution(po_signal.id, po_signal.expires_at)
 
         # 3. Форматируем ответ
-        formatted_signal = format_signal_response(best_signal, market, user_balance)
+        formatted_signal = format_signal_response(best_signal, market, user_balance, po_signal.id, po_signal.expires_at)
 
         print(f"\n✅ СИГНАЛ ГОТОВ:")
         print(f"   Пара: {formatted_signal['pair']}")
@@ -239,7 +291,13 @@ def generate_fallback_signal(market: str) -> dict:
     }
 
 
-def format_signal_response(signal: dict, market: str, balance: float) -> dict:
+def format_signal_response(
+    signal: dict,
+    market: str,
+    balance: float,
+    db_signal_id: int | None = None,
+    expires_at: datetime | None = None
+) -> dict:
     """Форматирование сигнала для frontend"""
     try:
         # Определяем направление
@@ -254,7 +312,7 @@ def format_signal_response(signal: dict, market: str, balance: float) -> dict:
         
         # Время экспирации
         expiry_minutes = signal.get("expiry_minutes", 5)
-        expiry_time = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+        expiry_time = expires_at or (datetime.utcnow() + timedelta(minutes=expiry_minutes))
         valid_until = datetime.utcnow() + timedelta(seconds=60)
         
         # Сила сигнала
@@ -287,7 +345,9 @@ def format_signal_response(signal: dict, market: str, balance: float) -> dict:
             "signal_strength": signal_strength,
             "provider": f"AI {market.upper()}",
             "signal_id": f"sig_{int(datetime.utcnow().timestamp())}_{market}",
+            "db_signal_id": db_signal_id,
             "generated_at": datetime.utcnow().isoformat(),
+            "expiry_timestamp": expiry_time.isoformat(),
             "reasoning": reasoning,
             "market": market,
             "market_data": {
